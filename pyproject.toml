@@ -7,17 +7,11 @@ name = "rhymepass"
 description = "Generate memorable, rhyming passphrases with an interactive terminal picker."
 readme = "README.md"
 license = "MIT"
+version = "0.0.0-dev"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Dave Williams", email = "syn@syn.as" }]
-keywords = [
-  "passphrase",
-  "password",
-  "rhyme",
-  "cli",
-  "tui",
-  "security",
-]
+keywords = ["passphrase", "password", "rhyme", "cli", "tui", "security"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -31,18 +25,11 @@ classifiers = [
   "Topic :: Security",
   "Topic :: Utilities",
 ]
-dependencies = [
-  "english-words>=2.0.2",
-  "pronouncing>=0.3.0",
-  "textual>=0.80",
-]
+dependencies = ["english-words>=2.0.2", "pronouncing>=0.3.0", "textual>=0.80"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
-dev = [
-  "pytest>=9.0",
-  "pytest-asyncio>=0.23",
-]
+dev = ["pytest>=9.0", "pytest-asyncio>=0.23"]
 
 [project.urls]
 Homepage = "https://github.com/synmux/rhymepass"
@@ -60,13 +47,7 @@ path = "src/rhymepass/__init__.py"
 packages = ["src/rhymepass"]
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "src/rhymepass",
-  "tests",
-  "README.md",
-  "LICENSE",
-  "AGENTS.md",
-]
+include = ["src/rhymepass", "tests", "README.md", "LICENSE", "AGENTS.md"]
 
 [tool.pytest]
 testpaths = ["tests"]

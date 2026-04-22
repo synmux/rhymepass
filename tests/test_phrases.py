@@ -73,9 +73,7 @@ class TestBuildPhrase:
         result = phrases._build_phrase("parade", 1)
         assert result == "the parade"
 
-    def test_one_filler_adjective_branch(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_one_filler_adjective_branch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(phrases.secrets, "randbelow", lambda _n: 1)
         monkeypatch.setattr(phrases.secrets, "choice", lambda _seq: "zesty")
         result = phrases._build_phrase("parade", 1)

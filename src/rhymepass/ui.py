@@ -227,10 +227,7 @@ class PassphraseApp(App[str | None]):
         pool_size = f"{len(self._pool):,}"
         limit_txt = "none" if self.limit == 0 else str(self.limit)
         spaces_txt = "on" if self.spaces_on else "off"
-        return (
-            f" Pool: {pool_size}  ·  Limit: {limit_txt}"
-            f"  ·  Spaces: {spaces_txt}"
-        )
+        return f" Pool: {pool_size}  ·  Limit: {limit_txt}" f"  ·  Spaces: {spaces_txt}"
 
     def _display_form(self, spaced: str) -> str:
         """Return the passphrase in its current display form.
@@ -354,9 +351,7 @@ class PassphraseApp(App[str | None]):
 
     # Selection --------------------------------------------------------
 
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Copy the highlighted passphrase's display form and exit."""
         index = event.option_index
         if index is None or index < 0 or index >= len(self._passphrases):

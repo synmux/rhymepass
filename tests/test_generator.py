@@ -50,9 +50,9 @@ class TestGeneratorShape:
         # fire unlimited generation redraws until a rhyme is found.
         for _ in range(20):
             phrase = generate(anchor_pool, real_words)
-            assert phrase.count(" / ") == 2, (
-                f"unlimited generation produced a single-statement phrase: {phrase!r}"
-            )
+            assert (
+                phrase.count(" / ") == 2
+            ), f"unlimited generation produced a single-statement phrase: {phrase!r}"
 
     def test_first_letter_uppercase(
         self, anchor_pool: list[str], real_words: set[str]
