@@ -1,10 +1,33 @@
-# Python-generated files
+# Python bytecode and caches
 __pycache__/
-*.py[oc]
+*.py[cod]
+
+# Build artefacts
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+*.egg
 
 # Virtual environments
-.venv
+.venv/
+venv/
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Linter caches
+.ruff_cache/
+.mypy_cache/
+
+# Editor state
+.vscode/
+.idea/
+
+# OS debris
+.DS_Store
+Thumbs.db
