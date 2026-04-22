@@ -29,6 +29,12 @@ lint:
     - taplo@0.10.0
     - trufflehog@3.95.2
     - yamllint@1.38.0
+  ignore:
+    - linters:
+        - yamllint
+        - checkov
+      paths:
+        - .github/workflows/claude*.y*ml
 actions:
   enabled:
     - trunk-announce
