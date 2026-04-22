@@ -1,25 +1,49 @@
-# AGENTS.md — `rp`
+# AGENTS.md — `rhymepass`
 
-Guide for AI agents working in this directory. This is the `enhanced-rp` project branch of the parent `myriad` repo.
+Guide for AI agents (and humans) working inside this repository. `CLAUDE.md` is a symlink to this file; keep the symlink intact when moving files around.
 
 ## What this is
 
-`rp` is a rhyming passphrase generator. It picks a random anchor word, finds phonetic rhymes via the CMU Pronouncing Dictionary, filters them against the GCIDE English dictionary, wraps each side in filler words (determiners, adjectives), and appends two random digits.
+`rhymepass` is a standalone utility that generates rhyming passphrases. It picks a random anchor word, finds phonetic rhymes via the CMU Pronouncing Dictionary, filters them against the GCIDE English dictionary, wraps each side in filler words (determiners, adjectives), and appends two random digits.
 
 Format: `"<Phrase A> / <phrase B> / <NN>"` — e.g. `"The underground parade / an undelivered accolade / 38"`.
 
-In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, regenerate). In a pipe the tool just prints the generated passphrases.
+In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all.
+
+Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). Both call `rhymepass.cli:main`.
 
 ## Layout
 
-Single-file project. Everything lives in `main.py`:
+```plaintext
+src/rhymepass/
+├── __init__.py        public API: generate, build_anchor_pool, load_real_words, __version__
+├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (112) — hand-curated filler banks
+├── anchors.py         load_real_words, _syllable_count, _is_good_anchor, build_anchor_pool
+├── phrases.py         _starts_with_vowel_sound, _pick_determiner, _build_phrase,
+│                      _capitalise, _couplet_filler_splits
+├── generator.py       shape constants (SUFFIX_LEN, COUPLET_SEP_LEN, MIN_*) and generate()
+├── clipboard.py       copy_to_clipboard (macOS-only pbcopy, raises elsewhere)
+├── cli.py             _parse_count, _handle_flags, main — thin orchestration
+└── ui.py              PassphraseApp, LimitModal, run_interactive_app
+tests/
+├── conftest.py        session-scoped real_words + anchor_pool fixtures; tiny_pool
+├── test_anchors.py    anchor-quality rules + pool construction
+├── test_cli.py        _parse_count, --help/--version flag handling
+├── test_generator.py  generate() shape, limit enforcement, error paths
+├── test_phrases.py    phrase builder helpers (monkeypatch for deterministic branches)
+├── test_ui.py         Textual pilot: key bindings, modal validation
+└── test_wordbanks.py  static invariants on the filler lists
+```
 
-- **Word banks** (`DETERMINERS`, `ADJECTIVES`) — hand-curated filler lists.
-- **Core helpers** — `_load_real_words`, `_syllable_count`, `_is_good_anchor`, `build_anchor_pool`.
-- **Phrase construction** — `_starts_with_vowel_sound`, `_pick_determiner`, `_build_phrase`, `_capitalise`.
-- **Generator** — `generate(pool, real_words, limit=0, max_attempts=300)` with the couplet→single-statement descent strategy (see below).
-- **CLI plumbing** — `_parse_count`, `_copy_to_clipboard`, `main`.
-- **Textual UI** — `_run_interactive_app` hosts the `LimitModal` and `PassphraseApp` nested classes. The function imports `textual.*` lazily so the non-TTY path never pays the Textual import cost.
+## Public API
+
+`rhymepass/__init__.py` exposes three functions and the version:
+
+```python
+from rhymepass import generate, build_anchor_pool, load_real_words, __version__
+```
+
+`load_real_words()` and `build_anchor_pool(real_words)` are comparatively expensive (~1 s combined on a warm import cache); call them once per process and reuse the result for any number of `generate()` calls.
 
 ## Generator strategy
 
@@ -31,7 +55,7 @@ Single-file project. Everything lives in `main.py`:
 
 The `" / NN"` two-digit suffix is always preserved. Shortest possible output is `"Abcd / 12"` (9 chars); any non-zero limit below `MIN_SINGLE_LEN` (9) is guaranteed to fail.
 
-Constants to know:
+Constants to know (all live in `rhymepass.generator`):
 
 | Constant          | Value | Meaning                                |
 | ----------------- | ----- | -------------------------------------- |
@@ -43,10 +67,11 @@ Constants to know:
 
 ## Textual UI
 
-`_run_interactive_app(count, pool, real_words, seeded)` defines and runs two classes:
+`rhymepass.ui` exposes two module-level classes and a launcher:
 
-- **`LimitModal(ModalScreen[int | None])`** — centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). ENTER validates and dismisses with the int (rejects values in 1..8 with a toast); ESC dismisses with `None`.
-- **`PassphraseApp(App[str | None])`** — the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows.
+* **`LimitModal(ModalScreen[int | None])`** — centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). ENTER validates and dismisses with the int (rejects values in 1..8 with a toast); ESC dismisses with `None`.
+* **`PassphraseApp(App[str | None])`** — the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows.
+* **`run_interactive_app(count, pool, real_words, seeded)`** — instantiates the app and returns its result.
 
 **Key bindings (documented in the card's key-hint label):**
 
@@ -61,71 +86,102 @@ Constants to know:
 
 **Spaces toggle vs. limit enforcement** — these have two different roles and must not be conflated:
 
-- The per-row `[N chars]` annotation reflects `len(display_form)`, so it decreases when spaces are toggled off.
-- The character-limit check inside `generate()` always uses the canonical spaced length, so toggling spaces off on a batch that already fits can never push any phrase over the limit.
+* The per-row `[N chars]` annotation reflects `len(display_form)`, so it decreases when spaces are toggled off.
+* The character-limit check inside `generate()` always uses the canonical spaced length, so toggling spaces off on a batch that already fits can never push any phrase over the limit.
 
 **Regeneration** happens in a `@work(thread=True, exclusive=True, name="regenerate")` worker. `on_worker_state_changed` swaps the batch atomically on success, or shows an error toast and leaves state untouched on failure. `exclusive=True` means spamming `r` cancels any in-flight regen rather than stacking.
 
 ## Gotchas
 
-### `pkg_resources` shim (top of `main.py`)
+### Lazy Textual import at the module boundary
 
-The `pronouncing` library still does `from pkg_resources import resource_stream` at import time, even though the function is no longer called. `setuptools >= 82` removed `pkg_resources` entirely, so we inject a stub module before importing `pronouncing`. Do not remove the shim unless `pronouncing` publishes a release that deletes the dead import.
+`rhymepass.ui` imports Textual at module top level, but `rhymepass.cli` only does `from rhymepass.ui import run_interactive_app` **inside the TTY branch** of `main()`. This keeps the non-TTY path (`rhymepass | cat`, CI usage) fast and free of Textual's dependency footprint (Textual transitively pulls ~9 packages including Rich and Pygments).
 
-### Lazy Textual import
+This is a deliberate departure from the previous single-file version, which nested the UI classes inside a function to achieve the same invariant. The module-boundary approach is cleaner, lets `ui.py` use standard top-level imports, and is still just as fast on the pipe path.
 
-`from textual import …` lives **inside** `_run_interactive_app`, not at module top. This keeps the non-TTY path (`rp | cat`, CI usage) fast and free of Textual's dependency footprint. Keep it lazy.
+### Non-TTY gate in `cli.main()`
 
-### Non-TTY gate in `main()`
-
-`if not sys.stdout.isatty(): print each; return` — Textual needs a real terminal. The gate is mandatory; never unconditionally instantiate `PassphraseApp`.
-
-### Nested classes inside a function
-
-`LimitModal` and `PassphraseApp` are defined inside `_run_interactive_app` because Textual's `App` wants its imports at definition time. This is deliberate — don't hoist them to module scope unless you also move the Textual imports up (and break the non-TTY optimisation above).
+`if not sys.stdout.isatty(): print each; return` — Textual needs a real terminal. The gate is mandatory; never unconditionally call `run_interactive_app`.
 
 ### macOS-only clipboard
 
-`_copy_to_clipboard` shells out to `pbcopy`. Cross-platform support (xclip, wl-copy, Windows clipboard) is a future concern; if adding it, do the platform detection inside the helper, not at the call site.
+`rhymepass.clipboard.copy_to_clipboard` detects the platform and raises `RuntimeError` with a clear message on anything other than macOS, rather than letting `FileNotFoundError` leak from `subprocess`. Cross-platform support (xclip / wl-copy / Windows `clip`) is a future concern; when adding it, keep all platform detection inside the helper, not at the call site.
+
+### Python 3.11+
+
+Type annotations use `X | Y` union syntax and `set[str]` / `list[str]` built-in generics, both of which require Python 3.10+. `pyproject.toml` pins `>=3.11` to match the oldest CPython still receiving bug fixes. If you lower the pin, make sure the syntax still parses on the older target.
+
+### `pronouncing` version pin
+
+`pronouncing >= 0.3.0` dropped the dead `from pkg_resources import resource_stream` import that made earlier versions break on `setuptools >= 82`. The project used to ship a `pkg_resources` shim to compensate; that shim has been removed now that the minimum is 0.3.0. If you lower the `pronouncing` pin, reintroduce the shim (the old code is in git history).
 
 ## Development
 
-Tool versions: Python `3.14` (pinned in `.python-version`), managed with `uv`. Repo-level linting uses Trunk.
+Tool versions: Python `3.14` for local dev (pinned in `.python-version`), package supports `>=3.11`. Managed with `uv`; task runner is `mise` (`mise.toml`).
+
+### mise tasks
+
+| Task              | What it does                                         |
+| ----------------- | ---------------------------------------------------- |
+| `sync`            | `uv sync --extra dev` — install / refresh dev deps   |
+| `test`            | `uv run pytest`                                      |
+| `test-verbose`    | `uv run pytest -v`                                   |
+| `run`             | `uv run rhymepass` — launch interactive picker       |
+| `smoke`           | `uv run rhymepass 8 \| cat` — non-TTY pipe test      |
+| `smoke-lib`       | Call `generate()` directly via `uv run python -c …`  |
+| `clean`           | `rm -rf dist/`                                       |
+| `build`           | Clean dist/, then `uv build` (wheel + sdist)         |
+| `check`           | `uvx twine check dist/*` — preflight metadata check  |
+| `publish-dry`     | `uv publish --dry-run` — rehearse upload without sending |
+| `publish-test`    | build → check → publish to TestPyPI                 |
+| `publish`         | build → check → publish to PyPI                     |
 
 ```bash
-# install / refresh deps
-uv sync
-
-# run it
-uv run python main.py [count]         # default count = 5
-uv run python main.py 8 | cat         # non-TTY smoke test
-
-# format & lint (from the project root)
-trunk fmt scripts/rp/main.py
-trunk check scripts/rp/main.py
+mise run sync
+mise run test
+mise run test-verbose
+mise run pytest tests/test_generator.py   # single file (bypass mise)
+mise run run
+mise run smoke
+mise run smoke-lib
+mise run build
+mise run check
+mise run publish-dry
+mise run publish-test
+mise run publish
 ```
 
-Install as a shell command: `./install.sh` (runs `pip install -e .`), then `rp [count]`.
+One-off commands that have no mise wrapper:
+
+```bash
+uv run rhymepass --version
+uv run rhymepass --help
+uv run rp [count]                         # short alias
+uv run pytest tests/test_generator.py     # single-file test run
+```
 
 ### Headless UI testing
 
-Textual's `run_test` pilot is the right tool for testing the UI without a TTY. It lets you query widgets, press keys, and assert on state:
+Textual's `run_test` pilot is the right tool for testing the UI without a TTY. Tests live in `tests/test_ui.py`; the pattern is:
 
 ```python
-async with app.run_test(size=(100, 30)) as pilot:
-    await pilot.pause()
-    await pilot.press("r")
-    await pilot.pause()
-    # assert whatever
+async def test_something(tiny_pool: list[str], real_words: set[str]) -> None:
+    app = PassphraseApp(count=3, pool=tiny_pool, real_words=real_words, seeded=[...])
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        # assert on app state
 ```
 
-The existing tests in this project are manual (no test suite yet) — if you add automated tests, use pilot for UI and direct function calls for the generator.
+`asyncio_mode = "auto"` in `[tool.pytest]` in `pyproject.toml` auto-applies `@pytest.mark.asyncio` to every `async def` test, so no decorator is required. Session-scoped `real_words` and `anchor_pool` fixtures in `conftest.py` keep the suite fast.
 
 ## Conventions
 
-- British English spelling in prose (per parent-repo style).
-- `uv` for all Python package management; never call `pip` directly.
-- Real service calls, not mocks (except inside tests).
-- No silent failures — raise with a useful message or `notify(severity="error")` in the UI.
-- Keep `main.py` single-file. If it grows past ~1000 lines, split the UI into `ui.py` rather than fragmenting the generator.
-- Update `README.md` (human-facing) whenever the hotkey set or CLI signature changes. `AGENTS.md` (this file) tracks the internals.
+* British English spelling in prose.
+* `uv` for all Python package management; never call `pip` directly.
+* Real service calls, not mocks, for tests that exercise dictionary data. Monkeypatching `secrets.choice` / `secrets.randbelow` is fine for deterministic branch coverage in `test_phrases.py`.
+* No silent failures — raise with a useful message or `notify(severity="error")` in the UI.
+* Keep modules focused. `generator.py` is the hot path; don't let UI concerns leak into it. `ui.py` is allowed to import from `generator`, but not the other way round.
+* Update `README.md` (human-facing) whenever the hotkey set, CLI signature, or public API changes. `AGENTS.md` (this file) tracks the internals.
+* Commits follow Conventional Commits with a leading gitmoji (see the repo's commit history for examples).
