@@ -22,13 +22,14 @@ src/rhymepass/
 ├── phrases.py         _starts_with_vowel_sound, _pick_determiner, _build_phrase,
 │                      _capitalise, _couplet_filler_splits
 ├── generator.py       shape constants (SUFFIX_LEN, COUPLET_SEP_LEN, MIN_*) and generate()
-├── clipboard.py       copy_to_clipboard (macOS-only pbcopy, raises elsewhere)
+├── clipboard.py       copy_to_clipboard (cross-platform; pbcopy/wl-copy/xclip/xsel/clip)
 ├── cli.py             _parse_count, _handle_flags, main - thin orchestration
 └── ui.py              PassphraseApp, LimitModal, run_interactive_app
 tests/
 ├── conftest.py        session-scoped real_words + anchor_pool fixtures; tiny_pool
 ├── test_anchors.py    anchor-quality rules + pool construction
 ├── test_cli.py        _parse_count, --help/--version flag handling
+├── test_clipboard.py  per-platform backend dispatch (mocked subprocess)
 ├── test_generator.py  generate() shape, limit enforcement, error paths
 ├── test_phrases.py    phrase builder helpers (monkeypatch for deterministic branches)
 ├── test_ui.py         Textual pilot: key bindings, modal validation
@@ -103,9 +104,23 @@ This is a deliberate departure from the previous single-file version, which nest
 
 `if not sys.stdout.isatty(): print each; return` - Textual needs a real terminal. The gate is mandatory; never unconditionally call `run_interactive_app`.
 
-### macOS-only clipboard
+### Cross-platform clipboard
 
-`rhymepass.clipboard.copy_to_clipboard` detects the platform and raises `RuntimeError` with a clear message on anything other than macOS, rather than letting `FileNotFoundError` leak from `subprocess`. Cross-platform support (xclip / wl-copy / Windows `clip`) is a future concern; when adding it, keep all platform detection inside the helper, not at the call site.
+`rhymepass.clipboard.copy_to_clipboard` dispatches to a per-platform helper binary, with every platform check confined to this module:
+
+| Platform        | Backend(s) tried, in order                               |
+| --------------- | -------------------------------------------------------- |
+| macOS           | `pbcopy`                                                 |
+| Linux (Wayland) | `wl-copy`, then `xclip`, then `xsel` (XWayland fallback) |
+| Linux (X11)     | `xclip`, then `xsel`                                     |
+| Windows         | `clip` (payload encoded as UTF-16LE with BOM)            |
+| Anything else   | `RuntimeError` - no backend known                        |
+
+Wayland vs X11 is detected via `$WAYLAND_DISPLAY`. Each backend is a `_Backend` dataclass (binary name, argv tuple, stdin encoder); `_select_backend` walks the list and picks the first one `shutil.which()` resolves, so falling back across helpers is just tuple concatenation. Adding a new backend (e.g. `termux-clipboard-set`) is one tuple entry, not a new branch.
+
+When every candidate is missing, `RuntimeError` is raised with a message that names the install targets (`wl-clipboard`, `xclip`, `xsel`, etc.) rather than letting `FileNotFoundError` leak from `subprocess`. Call sites stay a bare `copy_to_clipboard(text)` - platform awareness never leaks out.
+
+Tests in `tests/test_clipboard.py` monkeypatch `platform.system`, `shutil.which`, `os.environ`, and `subprocess.run`, so they cover every backend path on any host without mutating the developer's real clipboard.
 
 ### Python 3.11+
 

@@ -33,7 +33,7 @@ uv sync
 uv run rhymepass
 ```
 
-Requires Python 3.11 or newer. The clipboard copy step is currently macOS-only (see [Limitations](#limitations)).
+Requires Python 3.11 or newer. Clipboard copy works on macOS (via `pbcopy`), Linux (via `wl-copy`, `xclip`, or `xsel` — install one through your package manager if none are present), and Windows (via `clip`).
 
 ## Usage
 
@@ -114,7 +114,7 @@ See `pyproject.toml` for the exact pin set; the lock file covers transitive depe
 
 ## Limitations
 
-- **macOS-only clipboard.** The picker copies via the system `pbcopy` utility. Running the picker on Linux or Windows raises `RuntimeError` with a helpful message rather than silently failing; the generator itself (and the pipe/library paths) work everywhere. Cross-platform clipboard support (xclip/wl-copy/Windows clip) is planned but not implemented yet.
+- **Clipboard requires a platform helper binary.** macOS ships `pbcopy` out of the box and Windows ships `clip` since Vista, so both work without extra setup. On Linux you need one of `wl-copy` (from the `wl-clipboard` package, preferred on Wayland), `xclip`, or `xsel`. If none are available, the picker raises `RuntimeError` with a message naming the options; the generator itself (and the pipe/library paths) work without any clipboard tool.
 - **No history.** Each run produces a fresh batch; nothing is persisted between invocations.
 
 ## Contributing

@@ -37,7 +37,7 @@ from __future__ import annotations
 from rhymepass.anchors import build_anchor_pool, load_real_words
 from rhymepass.generator import generate
 
-__version__ = "0.0.0.dev0"
+__version__ = "0.0.0.dev1"
 
 __all__ = [
     "__version__",
