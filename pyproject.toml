@@ -7,7 +7,6 @@ name = "rhymepass"
 description = "Generate memorable, rhyming passphrases with an interactive terminal picker."
 readme = "README.md"
 license = "MIT"
-version = "0.0.0-dev"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Dave Williams", email = "syn@syn.as" }]
