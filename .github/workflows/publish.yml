@@ -1,24 +1,61 @@
-name: devskim
+name: publish
+
 on:
-  push: null
-  pull_request: null
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+
 permissions:
-  actions: read
   contents: read
-  id-token: write
-  issues: write
-  pull-requests: write
-  security-events: write
+
 jobs:
-  devskim:
-    name: devskim
+  publish:
+    name: Build and publish to PyPI
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - name: analysis
-        uses: microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6
-      - name: upload
-        uses: github/codeql-action/upload-sarif@267c4672a565967e4531438f2498370de5e8a98d
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
         with:
-          sarif_file: devskim-results.sarif
+          install: true
+          cache: true
+
+      - name: Pin package version to tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          tag = os.environ["TAG"]
+          path = pathlib.Path("src/rhymepass/__init__.py")
+          original = path.read_text()
+          updated = re.sub(
+              r'^__version__ = ".*"$',
+              f'__version__ = "{tag}"',
+              original,
+              flags=re.MULTILINE,
+          )
+          if updated == original:
+              raise SystemExit("did not find __version__ line to update")
+          path.write_text(updated)
+          print(f"__version__ set to {tag}")
+          PY
+          grep '^__version__' src/rhymepass/__init__.py
+
+      - name: Install dependencies
+        run: mise run sync
+
+      - name: Publish to TestPyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: mise run publish-test
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: mise run publish
