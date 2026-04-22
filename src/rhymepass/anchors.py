@@ -7,10 +7,10 @@ rhyming couplet still fits common character budgets.
 
 This module provides:
 
-* :func:`load_real_words` — loads a filtered view of the GCIDE word
+* :func:`load_real_words` - loads a filtered view of the GCIDE word
   list (GNU Collaborative International Dictionary of English) used
   to reject proper nouns, abbreviations, and obscurities;
-* :func:`build_anchor_pool` — walks the CMU Pronouncing Dictionary
+* :func:`build_anchor_pool` - walks the CMU Pronouncing Dictionary
   and returns every word that survives the anchor-quality checks.
 
 The private helpers :func:`_syllable_count` and

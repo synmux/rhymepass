@@ -46,8 +46,8 @@ class TestGeneratorShape:
     def test_unlimited_always_couplet(
         self, anchor_pool: list[str], real_words: set[str]
     ) -> None:
-        # With limit=0, the single-statement fallback must never fire —
-        # unlimited generation redraws until a rhyme is found.
+        # With limit=0, the single-statement fallback must never
+        # fire unlimited generation redraws until a rhyme is found.
         for _ in range(20):
             phrase = generate(anchor_pool, real_words)
             assert phrase.count(" / ") == 2, (

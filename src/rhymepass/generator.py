@@ -11,11 +11,11 @@ output. When a limit is set, the generator walks through progressively
 shorter shapes *for the same anchor* before giving up and drawing a
 fresh anchor:
 
-1. **Couplet descent** — try filler budgets from 4 down to 0, and
+1. **Couplet descent** - try filler budgets from 4 down to 0, and
    every legal ``(fillers_a, fillers_b)`` split within each budget.
-2. **Single-statement fallback** — only engaged when ``limit > 0``;
+2. **Single-statement fallback** - only engaged when ``limit > 0``;
    drops the rhyme partner entirely and emits ``"<phrase> / NN"``.
-   Unlimited generation never falls back — it redraws until a
+   Unlimited generation never falls back - it redraws until a
    rhyming couplet is found.
 
 The shape constants at the top of this module describe the minimum
@@ -70,11 +70,11 @@ def generate(
 
     1. Draw an anchor ``word_a``. If it has good rhymes, draw
        ``word_b`` from those rhymes and try progressively smaller
-       filler budgets (4 → 0), iterating every legal
+       filler budgets (4 -> 0), iterating every legal
        ``(fillers_a, fillers_b)`` split within each budget. Return
        the first candidate whose length fits the limit.
     2. If no couplet fits, fall back to the single-statement form
-       using just ``word_a`` and try filler counts 2 → 1 → 0.
+       using just ``word_a`` and try filler counts 2 -> 1 -> 0.
     3. If neither form fits for this anchor, draw another anchor.
 
     When ``limit == 0`` the single-statement fallback is skipped
@@ -129,7 +129,7 @@ def generate(
                         return phrase
 
         # Single-statement fallback: drop the rhyme partner entirely.
-        # Only used under a non-zero limit — unlimited generation must
+        # Only used under a non-zero limit - unlimited generation must
         # stay rhyming, so we redraw instead of accepting a non-rhyming
         # phrase.
         if limit > 0:

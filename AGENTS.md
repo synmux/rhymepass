@@ -1,4 +1,4 @@
-# AGENTS.md — `rhymepass`
+# AGENTS.md - `rhymepass`
 
 Guide for AI agents (and humans) working inside this repository. `CLAUDE.md` is a symlink to this file; keep the symlink intact when moving files around.
 
@@ -6,7 +6,7 @@ Guide for AI agents (and humans) working inside this repository. `CLAUDE.md` is 
 
 `rhymepass` is a standalone utility that generates rhyming passphrases. It picks a random anchor word, finds phonetic rhymes via the CMU Pronouncing Dictionary, filters them against the GCIDE English dictionary, wraps each side in filler words (determiners, adjectives), and appends two random digits.
 
-Format: `"<Phrase A> / <phrase B> / <NN>"` — e.g. `"The underground parade / an undelivered accolade / 38"`.
+Format: `"<Phrase A> / <phrase B> / <NN>"` - e.g. `"The underground parade / an undelivered accolade / 38"`.
 
 In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all.
 
@@ -17,13 +17,13 @@ Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). 
 ```plaintext
 src/rhymepass/
 ├── __init__.py        public API: generate, build_anchor_pool, load_real_words, __version__
-├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (112) — hand-curated filler banks
+├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (112) - hand-curated filler banks
 ├── anchors.py         load_real_words, _syllable_count, _is_good_anchor, build_anchor_pool
 ├── phrases.py         _starts_with_vowel_sound, _pick_determiner, _build_phrase,
 │                      _capitalise, _couplet_filler_splits
 ├── generator.py       shape constants (SUFFIX_LEN, COUPLET_SEP_LEN, MIN_*) and generate()
 ├── clipboard.py       copy_to_clipboard (macOS-only pbcopy, raises elsewhere)
-├── cli.py             _parse_count, _handle_flags, main — thin orchestration
+├── cli.py             _parse_count, _handle_flags, main - thin orchestration
 └── ui.py              PassphraseApp, LimitModal, run_interactive_app
 tests/
 ├── conftest.py        session-scoped real_words + anchor_pool fixtures; tiny_pool
@@ -50,7 +50,7 @@ from rhymepass import generate, build_anchor_pool, load_real_words, __version__
 `generate()` respects an optional character limit by walking through progressively shorter output forms **for the same anchor** before drawing a new anchor:
 
 1. **Couplet descent**: if `word_a` has good rhymes, pick `word_b` and try `total_fillers` from 4 down to 0. For each total, iterate every legal `(fillers_a, fillers_b)` split with both halves in `[0, 2]`. Return the first candidate that fits.
-2. **Single-statement fallback** (limit-only): if a couplet form can't fit under a non-zero `limit` (or `word_a` has no good rhymes), drop the rhyme partner and try `"<phrase_a> / NN"` with fillers 2 → 1 → 0. This step is **skipped entirely when `limit == 0`** — unlimited generation must stay rhyming, so we redraw instead of emitting a non-rhyming phrase.
+2. **Single-statement fallback** (limit-only): if a couplet form can't fit under a non-zero `limit` (or `word_a` has no good rhymes), drop the rhyme partner and try `"<phrase_a> / NN"` with fillers 2 -> 1 -> 0. This step is **skipped entirely when `limit == 0`** - unlimited generation must stay rhyming, so we redraw instead of emitting a non-rhyming phrase.
 3. If neither form fits this anchor, draw a new anchor and restart. After `max_attempts` fruitless draws, raise `RuntimeError`.
 
 The `" / NN"` two-digit suffix is always preserved. Shortest possible output is `"Abcd / 12"` (9 chars); any non-zero limit below `MIN_SINGLE_LEN` (9) is guaranteed to fail.
@@ -69,9 +69,9 @@ Constants to know (all live in `rhymepass.generator`):
 
 `rhymepass.ui` exposes two module-level classes and a launcher:
 
-* **`LimitModal(ModalScreen[int | None])`** — centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). ENTER validates and dismisses with the int (rejects values in 1..8 with a toast); ESC dismisses with `None`.
-* **`PassphraseApp(App[str | None])`** — the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows.
-* **`run_interactive_app(count, pool, real_words, seeded)`** — instantiates the app and returns its result.
+- **`LimitModal(ModalScreen[int | None])`** - centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). ENTER validates and dismisses with the int (rejects values in 1..8 with a toast); ESC dismisses with `None`.
+- **`PassphraseApp(App[str | None])`** - the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows.
+- **`run_interactive_app(count, pool, real_words, seeded)`** - instantiates the app and returns its result.
 
 **Key bindings (documented in the card's key-hint label):**
 
@@ -84,10 +84,10 @@ Constants to know (all live in `rhymepass.generator`):
 | `enter`     | copy highlighted passphrase to clipboard (via `pbcopy`) and exit          |
 | `esc` / `q` | exit without copying                                                      |
 
-**Spaces toggle vs. limit enforcement** — these have two different roles and must not be conflated:
+**Spaces toggle vs. limit enforcement** - these have two different roles and must not be conflated:
 
-* The per-row `[N chars]` annotation reflects `len(display_form)`, so it decreases when spaces are toggled off.
-* The character-limit check inside `generate()` always uses the canonical spaced length, so toggling spaces off on a batch that already fits can never push any phrase over the limit.
+- The per-row `[N chars]` annotation reflects `len(display_form)`, so it decreases when spaces are toggled off.
+- The character-limit check inside `generate()` always uses the canonical spaced length, so toggling spaces off on a batch that already fits can never push any phrase over the limit.
 
 **Regeneration** happens in a `@work(thread=True, exclusive=True, name="regenerate")` worker. `on_worker_state_changed` swaps the batch atomically on success, or shows an error toast and leaves state untouched on failure. `exclusive=True` means spamming `r` cancels any in-flight regen rather than stacking.
 
@@ -101,7 +101,7 @@ This is a deliberate departure from the previous single-file version, which nest
 
 ### Non-TTY gate in `cli.main()`
 
-`if not sys.stdout.isatty(): print each; return` — Textual needs a real terminal. The gate is mandatory; never unconditionally call `run_interactive_app`.
+`if not sys.stdout.isatty(): print each; return` - Textual needs a real terminal. The gate is mandatory; never unconditionally call `run_interactive_app`.
 
 ### macOS-only clipboard
 
@@ -121,20 +121,20 @@ Tool versions: Python `3.14` for local dev (pinned in `.python-version`), packag
 
 ### mise tasks
 
-| Task              | What it does                                         |
-| ----------------- | ---------------------------------------------------- |
-| `sync`            | `uv sync --extra dev` — install / refresh dev deps   |
-| `test`            | `uv run pytest`                                      |
-| `test-verbose`    | `uv run pytest -v`                                   |
-| `run`             | `uv run rhymepass` — launch interactive picker       |
-| `smoke`           | `uv run rhymepass 8 \| cat` — non-TTY pipe test      |
-| `smoke-lib`       | Call `generate()` directly via `uv run python -c …`  |
-| `clean`           | `rm -rf dist/`                                       |
-| `build`           | Clean dist/, then `uv build` (wheel + sdist)         |
-| `check`           | `uvx twine check dist/*` — preflight metadata check  |
-| `publish-dry`     | `uv publish --dry-run` — rehearse upload without sending |
-| `publish-test`    | build → check → publish to TestPyPI                 |
-| `publish`         | build → check → publish to PyPI                     |
+| Task           | What it does                                             |
+| -------------- | -------------------------------------------------------- |
+| `sync`         | `uv sync --extra dev` - install / refresh dev deps       |
+| `test`         | `uv run pytest`                                          |
+| `test-verbose` | `uv run pytest -v`                                       |
+| `run`          | `uv run rhymepass` - launch interactive picker           |
+| `smoke`        | `uv run rhymepass 8 \| cat` - non-TTY pipe test          |
+| `smoke-lib`    | Call `generate()` directly via `uv run python -c ...`    |
+| `clean`        | `rm -rf dist/`                                           |
+| `build`        | Clean dist/, then `uv build` (wheel + sdist)             |
+| `check`        | `uvx twine check dist/*` - preflight metadata check      |
+| `publish-dry`  | `uv publish --dry-run` - rehearse upload without sending |
+| `publish-test` | build -> check -> publish to TestPyPI                    |
+| `publish`      | build -> check -> publish to PyPI                        |
 
 ```bash
 mise run sync
@@ -178,10 +178,10 @@ async def test_something(tiny_pool: list[str], real_words: set[str]) -> None:
 
 ## Conventions
 
-* British English spelling in prose.
-* `uv` for all Python package management; never call `pip` directly.
-* Real service calls, not mocks, for tests that exercise dictionary data. Monkeypatching `secrets.choice` / `secrets.randbelow` is fine for deterministic branch coverage in `test_phrases.py`.
-* No silent failures — raise with a useful message or `notify(severity="error")` in the UI.
-* Keep modules focused. `generator.py` is the hot path; don't let UI concerns leak into it. `ui.py` is allowed to import from `generator`, but not the other way round.
-* Update `README.md` (human-facing) whenever the hotkey set, CLI signature, or public API changes. `AGENTS.md` (this file) tracks the internals.
-* Commits follow Conventional Commits with a leading gitmoji (see the repo's commit history for examples).
+- British English spelling in prose.
+- `uv` for all Python package management; never call `pip` directly.
+- Real service calls, not mocks, for tests that exercise dictionary data. Monkeypatching `secrets.choice` / `secrets.randbelow` is fine for deterministic branch coverage in `test_phrases.py`.
+- No silent failures - raise with a useful message or `notify(severity="error")` in the UI.
+- Keep modules focused. `generator.py` is the hot path; don't let UI concerns leak into it. `ui.py` is allowed to import from `generator`, but not the other way round.
+- Update `README.md` (human-facing) whenever the hotkey set, CLI signature, or public API changes. `AGENTS.md` (this file) tracks the internals.
+- Commits follow Conventional Commits with a leading gitmoji (see the repo's commit history for examples).

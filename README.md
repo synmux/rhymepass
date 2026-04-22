@@ -39,8 +39,8 @@ Requires Python 3.11 or newer. The clipboard copy step is currently macOS-only (
 
 Two commands land the same tool on your `$PATH`:
 
-* `rhymepass` — the canonical name.
-* `rp` — a short alias.
+- `rhymepass` - the canonical name.
+- `rp` - a short alias.
 
 ### In a terminal
 
@@ -51,14 +51,14 @@ rhymepass --help     # usage summary
 rhymepass --version  # print the installed version
 ```
 
-Use the arrow keys to highlight a passphrase, then press enter — the selected passphrase is copied to your clipboard and the tool exits.
+Use the arrow keys to highlight a passphrase, then press enter - the selected passphrase is copied to your clipboard and the tool exits.
 
 | Key         | What it does                                                                                                                                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `↑` / `↓`   | Move the highlight.                                                                                                                                                                                                                         |
 | `enter`     | Copy the highlighted passphrase and exit.                                                                                                                                                                                                   |
 | `x`         | Toggle whether spaces are shown. The per-row character count reflects the displayed form, so toggling spaces off makes every count drop. The character **limit**, however, is always enforced against the spaced form, so toggling is safe. |
-| `l`         | Prompt for a character limit. `0` means no limit (the default); any positive value must be at least 9 characters. The batch regenerates so every passphrase fits under the new limit.                                                        |
+| `l`         | Prompt for a character limit. `0` means no limit (the default); any positive value must be at least 9 characters. The batch regenerates so every passphrase fits under the new limit.                                                       |
 | `r`         | Regenerate the batch with the current settings.                                                                                                                                                                                             |
 | `esc` / `q` | Exit without copying anything.                                                                                                                                                                                                              |
 
@@ -95,27 +95,27 @@ print(generate(pool, real_words, limit=24))    # fit under 24 characters
 
 Anchor words come from the intersection of two dictionaries:
 
-* the CMU Pronouncing Dictionary (via [`pronouncing`](https://pypi.org/project/pronouncing/)) for phonetic rhymes and syllable counts,
-* the GNU Collaborative International Dictionary of English (via [`english-words`](https://pypi.org/project/english-words/)) to exclude proper nouns, abbreviations, and obscure entries.
+- the CMU Pronouncing Dictionary (via [`pronouncing`](https://pypi.org/project/pronouncing/)) for phonetic rhymes and syllable counts,
+- the GNU Collaborative International Dictionary of English (via [`english-words`](https://pypi.org/project/english-words/)) to exclude proper nouns, abbreviations, and obscure entries.
 
 For every passphrase, `rhymepass` picks a random anchor, looks up phonetic rhymes, filters them through the same quality checks, and assembles two phrases by wrapping each anchor in zero, one, or two filler words drawn from a hand-curated list of determiners (`the`, `some`, `every`, …) and adjectives (`nimble`, `radiant`, `zesty`, …). A two-digit suffix (`10`–`99`) is appended to each passphrase.
 
-All random choices use [`secrets`](https://docs.python.org/3/library/secrets.html) rather than `random`, so the output is suitable for use as an actual passphrase — though you should still pair it with whatever additional entropy your threat model demands.
+All random choices use [`secrets`](https://docs.python.org/3/library/secrets.html) rather than `random`, so the output is suitable for use as an actual passphrase - though you should still pair it with whatever additional entropy your threat model demands.
 
 When a character limit is set, the generator descends through progressively shorter output forms for the same anchor before giving up and drawing a new one, so common limits (20–30 characters) succeed in a few attempts. See [`AGENTS.md`](./AGENTS.md) for the exact descent strategy.
 
 ## Dependencies
 
-* [`pronouncing`](https://pypi.org/project/pronouncing/) ≥ 0.3.0 — CMU Pronouncing Dictionary bindings.
-* [`english-words`](https://pypi.org/project/english-words/) ≥ 2.0.2 — GCIDE word set for filtering.
-* [`textual`](https://pypi.org/project/textual/) ≥ 0.80 — terminal UI. Only imported on the interactive path.
+- [`pronouncing`](https://pypi.org/project/pronouncing/) ≥ 0.3.0 - CMU Pronouncing Dictionary bindings.
+- [`english-words`](https://pypi.org/project/english-words/) ≥ 2.0.2 - GCIDE word set for filtering.
+- [`textual`](https://pypi.org/project/textual/) ≥ 0.80 - terminal UI. Only imported on the interactive path.
 
 See `pyproject.toml` for the exact pin set; the lock file covers transitive dependencies.
 
 ## Limitations
 
-* **macOS-only clipboard.** The picker copies via the system `pbcopy` utility. Running the picker on Linux or Windows raises `RuntimeError` with a helpful message rather than silently failing; the generator itself (and the pipe/library paths) work everywhere. Cross-platform clipboard support (xclip/wl-copy/Windows clip) is planned but not implemented yet.
-* **No history.** Each run produces a fresh batch; nothing is persisted between invocations.
+- **macOS-only clipboard.** The picker copies via the system `pbcopy` utility. Running the picker on Linux or Windows raises `RuntimeError` with a helpful message rather than silently failing; the generator itself (and the pipe/library paths) work everywhere. Cross-platform clipboard support (xclip/wl-copy/Windows clip) is planned but not implemented yet.
+- **No history.** Each run produces a fresh batch; nothing is persisted between invocations.
 
 ## Contributing
 
@@ -130,4 +130,4 @@ Bug reports, feature ideas, and pull requests are welcome at <https://github.com
 
 ## Licence
 
-MIT — see [`LICENSE`](./LICENSE).
+MIT - see [`LICENSE`](./LICENSE).

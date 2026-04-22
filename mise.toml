@@ -27,11 +27,11 @@ description = "Launch the interactive passphrase picker"
 run         = "uv run rhymepass"
 
 [tasks.smoke]
-description = "Non-TTY smoke test — print 8 phrases via pipe"
+description = "Non-TTY smoke test - print 8 phrases via pipe"
 run         = "uv run rhymepass 8 | cat"
 
 [tasks.smoke-lib]
-description = "Library API smoke test — call generate() directly"
+description = "Library API smoke test - call generate() directly"
 run         = "uv run python -c 'from rhymepass import generate, build_anchor_pool, load_real_words; rw = load_real_words(); print(generate(build_anchor_pool(rw), rw))'"
 
 # ── Build & publish ───────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ description = "Preflight: validate dist/ metadata with twine (run after build)"
 run         = "uvx twine check dist/*"
 
 [tasks.publish-dry]
-description = "Dry-run publish — build, preflight check, then simulate upload"
+description = "Dry-run publish - build, preflight check, then simulate upload"
 run         = [
   "rm -rf dist/",
   "uv build",
@@ -58,7 +58,7 @@ run         = [
 ]
 
 [tasks.publish-test]
-description = "Full release to TestPyPI — build, preflight check, upload"
+description = "Full release to TestPyPI - build, preflight check, upload"
 run         = [
   "rm -rf dist/",
   "uv build",
@@ -67,7 +67,7 @@ run         = [
 ]
 
 [tasks.publish]
-description = "Full release to PyPI — build, preflight check, upload"
+description = "Full release to PyPI - build, preflight check, upload"
 run         = [
   "rm -rf dist/",
   "uv build",

@@ -1,7 +1,7 @@
 """Tests for the interactive Textual UI, driven by its pilot harness.
 
-Most of these tests do not actually need the real anchor pool —
-regeneration is triggered but the worker can run against a tiny pool
+Most of these tests do not actually need the real anchor pool.
+Regeneration is triggered but the worker can run against a tiny pool
 for speed. We still request the session-scoped ``real_words`` fixture
 because :func:`rhymepass.generator.generate` needs it to validate
 rhyme candidates.

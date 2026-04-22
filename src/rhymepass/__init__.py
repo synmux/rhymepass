@@ -1,4 +1,4 @@
-"""rhymepass — generate memorable, rhyming passphrases.
+"""rhymepass - generate memorable, rhyming passphrases.
 
 Overview
 --------
@@ -12,11 +12,11 @@ type, and hard to guess.
 Public API
 ----------
 
-* :func:`generate` — build a single passphrase.
-* :func:`build_anchor_pool` — construct the anchor pool used by
+* :func:`generate` - build a single passphrase.
+* :func:`build_anchor_pool` - construct the anchor pool used by
   :func:`generate`. Can be called once per process and reused for
   many generations.
-* :func:`load_real_words` — load the GCIDE word set used to filter
+* :func:`load_real_words` - load the GCIDE word set used to filter
   the anchor pool.
 
 A typical library usage pattern is::

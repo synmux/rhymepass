@@ -12,9 +12,9 @@ scripted callers never pay the cost.
 
 Public API:
 
-* :class:`LimitModal` — the character-limit prompt.
-* :class:`PassphraseApp` — the picker itself.
-* :func:`run_interactive_app` — convenience wrapper that instantiates
+* :class:`LimitModal` - the character-limit prompt.
+* :class:`PassphraseApp` - the picker itself.
+* :func:`run_interactive_app` - convenience wrapper that instantiates
   :class:`PassphraseApp` and returns the chosen passphrase (or
   ``None`` if the user cancels).
 """
@@ -121,9 +121,9 @@ class PassphraseApp(App[str | None]):
 
     Reactive state:
 
-    * :attr:`spaces_on` — whether interior spaces are shown in the
+    * :attr:`spaces_on` - whether interior spaces are shown in the
       displayed passphrases.
-    * :attr:`limit` — the current character limit (0 = unlimited).
+    * :attr:`limit` - the current character limit (0 = unlimited).
 
     Regeneration runs in a background thread worker so the UI stays
     responsive. ``exclusive=True`` means a fresh regenerate cancels

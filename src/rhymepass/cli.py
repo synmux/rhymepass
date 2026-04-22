@@ -3,8 +3,8 @@
 Two console scripts land here via ``[project.scripts]`` in
 ``pyproject.toml``:
 
-* ``rhymepass`` — the canonical command name used in docs.
-* ``rp`` — a short alias that preserves the previous project's
+* ``rhymepass`` - the canonical command name used in docs.
+* ``rp`` - a short alias that preserves the previous project's
   muscle memory.
 
 Both call :func:`main`. The interactive Textual UI module is imported

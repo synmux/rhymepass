@@ -2,13 +2,13 @@
 
 Two lists:
 
-* :data:`DETERMINERS` — articles, possessives, and quantifiers that sit
+* :data:`DETERMINERS` - articles, possessives, and quantifiers that sit
   at the start of a noun phrase (``the``, ``some``, ``every``, …).
   Both ``"a"`` and ``"an"`` are included because
   :func:`rhymepass.phrases._pick_determiner` upgrades ``"a"`` to
   ``"an"`` when the following word begins with a vowel sound.
 
-* :data:`ADJECTIVES` — generic positive/neutral adjectives suitable for
+* :data:`ADJECTIVES` - generic positive/neutral adjectives suitable for
   modifying almost any noun (``nimble``, ``radiant``, ``zesty``, …).
 
 Conventions for entries in both lists:
