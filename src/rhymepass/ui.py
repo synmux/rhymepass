@@ -31,6 +31,11 @@ from textual.widgets import Input, Label, OptionList, Static
 from textual.worker import Worker, WorkerState
 
 from rhymepass.generator import MIN_SINGLE_LEN, generate
+from rhymepass.randomgen import (
+    DEFAULT_RANDOM_LEN,
+    MIN_RANDOM_LEN,
+    generate_random,
+)
 from rhymepass.strength import format_strength, score_passphrase
 
 
@@ -52,9 +57,12 @@ class LimitModal(ModalScreen[int | None]):
 
     Dismisses with the validated integer (``0`` meaning "no limit")
     or ``None`` if the user presses ``Escape``. Values between ``1``
-    and :data:`rhymepass.generator.MIN_SINGLE_LEN` minus one are
-    rejected inline via a toast because no passphrase shorter than
-    ``"Abcd / 12"`` can be built.
+    and ``min_value - 1`` are rejected inline via a toast.
+
+    The ``min_value`` is supplied by the parent screen because it
+    depends on the current generation mode: rhyming mode uses
+    :data:`rhymepass.generator.MIN_SINGLE_LEN` (9), while random mode
+    can go as low as :data:`rhymepass.randomgen.MIN_RANDOM_LEN` (4).
     """
 
     DEFAULT_CSS = """
@@ -76,10 +84,21 @@ class LimitModal(ModalScreen[int | None]):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
 
+    def __init__(self, min_value: int = MIN_SINGLE_LEN) -> None:
+        """Store the mode-dependent minimum for use in the validator.
+
+        Args:
+            min_value: Smallest accepted non-zero limit. Defaults to
+                :data:`rhymepass.generator.MIN_SINGLE_LEN` so existing
+                rhyming-mode call sites need no change.
+        """
+        super().__init__()
+        self._min_value = min_value
+
     def compose(self) -> ComposeResult:
         """Build the modal content: a label, an input, and a hint."""
         yield Vertical(
-            Label(f"Character limit (0 = no limit, min {MIN_SINGLE_LEN}):"),
+            Label(f"Character limit (0 = no limit, min {self._min_value}):"),
             Input(
                 value="0",
                 type="integer",
@@ -113,9 +132,9 @@ class LimitModal(ModalScreen[int | None]):
         """Validate the typed value and dismiss with the integer."""
         raw = event.value.strip()
         value = int(raw) if raw else 0
-        if value != 0 and value < MIN_SINGLE_LEN:
+        if value != 0 and value < self._min_value:
             self.app.notify(
-                f"Limit must be 0 or at least {MIN_SINGLE_LEN} characters.",
+                f"Limit must be 0 or at least {self._min_value} characters.",
                 severity="error",
             )
             return
@@ -138,6 +157,9 @@ class PassphraseApp(App[str | None]):
     * :attr:`spaces_on` - whether interior spaces are shown in the
       displayed passphrases.
     * :attr:`limit` - the current character limit (0 = unlimited).
+    * :attr:`random_mode` - whether the picker generates fully random
+      passwords (True) or rhyming passphrases (False, the default).
+      Toggled with ``m``; flips the accent colour to violet.
 
     Regeneration runs in a background thread worker so the UI stays
     responsive. ``exclusive=True`` means a fresh regenerate cancels
@@ -181,11 +203,23 @@ class PassphraseApp(App[str | None]):
         margin-top: 1;
         text-align: center;
     }
+
+    /* Random-mode accent swap. Adding the `random-mode` class to the
+       App swaps the rhyming-blue accents for Tailwind violet-500.
+       The literal hex avoids depending on Textual's theme-scoped
+       `$accent` token, which can vary between light/dark themes. */
+    PassphraseApp.random-mode #card {
+        border: thick #8b5cf6;
+    }
+    PassphraseApp.random-mode #status-bar {
+        background: #8b5cf6 30%;
+    }
     """
 
     BINDINGS = [
         Binding("x", "toggle_spaces", "Toggle spaces"),
         Binding("l", "set_limit", "Set limit"),
+        Binding("m", "toggle_mode", "Mode"),
         Binding("r", "regenerate", "Regenerate"),
         Binding("escape", "cancel", "Cancel"),
         Binding("q", "cancel", "Cancel", show=False),
@@ -193,6 +227,7 @@ class PassphraseApp(App[str | None]):
 
     spaces_on: reactive[bool] = reactive(True)
     limit: reactive[int] = reactive(0)
+    random_mode: reactive[bool] = reactive(False)
 
     def __init__(
         self,
@@ -225,11 +260,7 @@ class PassphraseApp(App[str | None]):
         yield Container(
             Static(self._status_text(), id="status-bar"),
             OptionList(id="passphrase-list"),
-            Static(
-                "x: toggle spaces  ·  l: set limit  ·  r: regenerate"
-                "  ·  enter: copy  ·  esc: cancel",
-                id="key-hints",
-            ),
+            Static(self._key_hints_text(), id="key-hints"),
             id="card",
         )
 
@@ -240,11 +271,43 @@ class PassphraseApp(App[str | None]):
     # Rendering helpers ------------------------------------------------
 
     def _status_text(self) -> str:
-        """Return the current status-bar string."""
+        """Return the current status-bar string.
+
+        In random mode the "Spaces:" entry is suppressed because the
+        toggle has nothing to act on; the mode itself is shown
+        instead so the user always knows which generator is active.
+        """
         pool_size = f"{len(self._pool):,}"
         limit_txt = "none" if self.limit == 0 else str(self.limit)
+        mode_txt = "random" if self.random_mode else "rhyme"
+        if self.random_mode:
+            return f" Pool: {pool_size}  ·  Limit: {limit_txt}  ·  Mode: {mode_txt}"
         spaces_txt = "on" if self.spaces_on else "off"
-        return f" Pool: {pool_size}  ·  Limit: {limit_txt}" f"  ·  Spaces: {spaces_txt}"
+        return (
+            f" Pool: {pool_size}  ·  Limit: {limit_txt}"
+            f"  ·  Spaces: {spaces_txt}  ·  Mode: {mode_txt}"
+        )
+
+    def _key_hints_text(self) -> str:
+        """Return the footer hint string for the current mode.
+
+        The ``x`` toggle is hidden in random mode (no spaces to
+        toggle); the binding stays registered so pressing ``x`` is a
+        silent no-op rather than an error.
+        """
+        if self.random_mode:
+            return (
+                "l: set limit  ·  m: mode  ·  r: regenerate"
+                "  ·  enter: copy  ·  esc: cancel"
+            )
+        return (
+            "x: toggle spaces  ·  l: set limit  ·  m: mode  ·  r: regenerate"
+            "  ·  enter: copy  ·  esc: cancel"
+        )
+
+    def _refresh_key_hints(self) -> None:
+        """Re-render the footer hint from the current mode."""
+        self.query_one("#key-hints", Static).update(self._key_hints_text())
 
     def _display_form(self, spaced: str) -> str:
         """Return the passphrase in its current display form.
@@ -297,17 +360,45 @@ class PassphraseApp(App[str | None]):
         self._refresh_status()
 
     def action_set_limit(self) -> None:
-        """Prompt for a new character limit and regenerate if accepted."""
+        """Prompt for a new character limit and regenerate if accepted.
+
+        The minimum the modal will accept depends on mode: rhyming
+        mode needs at least :data:`MIN_SINGLE_LEN` (9) chars to fit
+        ``"Abcd / 12"``, but random mode can produce a useful 4-char
+        password.
+        """
 
         def handle(new_limit: int | None) -> None:
             if new_limit is None or new_limit == self.limit:
                 return
             self._regenerate_under(new_limit)
 
-        self.push_screen(LimitModal(), handle)
+        minimum = MIN_RANDOM_LEN if self.random_mode else MIN_SINGLE_LEN
+        self.push_screen(LimitModal(min_value=minimum), handle)
 
     def action_regenerate(self) -> None:
         """Draw a fresh batch of passphrases under the current limit."""
+        self._regenerate_under(self.limit)
+
+    def action_toggle_mode(self) -> None:
+        """Flip between rhyming and random modes.
+
+        The mode change has three visible effects:
+
+        1. The ``random-mode`` CSS class is toggled on the App, which
+           swaps the accent colour from blue to violet via the rules
+           defined in :attr:`CSS`.
+        2. The status bar and footer hints are re-rendered to reflect
+           the new mode (random hides the ``Spaces:`` field and the
+           ``x`` hint).
+        3. A regeneration is kicked off under the current limit so
+           the user immediately sees output in the new mode rather
+           than rhymes alongside a "Mode: random" label.
+        """
+        self.random_mode = not self.random_mode
+        self.set_class(self.random_mode, "random-mode")
+        self._refresh_status()
+        self._refresh_key_hints()
         self._regenerate_under(self.limit)
 
     def action_cancel(self) -> None:
@@ -318,38 +409,66 @@ class PassphraseApp(App[str | None]):
 
     @work(thread=True, exclusive=True, name="regenerate")
     def _regenerate_worker(
-        self, new_limit: int
+        self, new_limit: int, random_mode: bool
     ) -> tuple[list[str], list[tuple[int, int]]]:
         """Regenerate the passphrase batch on a worker thread.
+
+        Dispatches on the mode captured by the caller on the main
+        thread: rhyming mode calls
+        :func:`rhymepass.generator.generate`, random mode calls
+        :func:`rhymepass.randomgen.generate_random`. Capturing the
+        mode in the call rather than reading
+        :attr:`PassphraseApp.random_mode` here keeps the worker free
+        of any cross-thread reactive reads.
 
         Returning normally signals success; raising
         :class:`RuntimeError` (from :func:`generate`) signals failure.
         Both land in :meth:`on_worker_state_changed`, which dispatches
-        the UI update on the main thread.
+        the UI update on the main thread. Random-mode generation
+        cannot raise under valid inputs, so the failure path is
+        rhyming-only in practice.
 
         Scoring happens here, off the UI thread, so the picker stays
         responsive even though zxcvbn analysis takes tens of ms per
-        passphrase.
+        passphrase. ``_score_both_forms`` is a no-op for the strip on
+        space-less random output, so the cached pair holds the same
+        score twice and the toggle lookup falls through cleanly.
 
         Args:
             new_limit: The character limit to enforce for this batch.
+                In rhyming mode this is an upper bound; in random
+                mode it is the exact length (with ``0`` meaning
+                :data:`DEFAULT_RANDOM_LEN`).
+            random_mode: ``True`` to call ``generate_random``,
+                ``False`` to call the rhyming generator. Captured
+                snapshot from the main thread at dispatch time.
 
         Returns:
             A tuple of ``(passphrases, scores)`` where ``scores`` is a
             parallel list of ``(score_with_spaces, score_without_spaces)``
             pairs. Both lists have length ``self._count``.
         """
-        phrases = [
-            generate(self._pool, self._real_words, limit=new_limit)
-            for _ in range(self._count)
-        ]
+        if random_mode:
+            target_len = new_limit if new_limit > 0 else DEFAULT_RANDOM_LEN
+            phrases = [generate_random(length=target_len) for _ in range(self._count)]
+        else:
+            phrases = [
+                generate(self._pool, self._real_words, limit=new_limit)
+                for _ in range(self._count)
+            ]
         scores = [_score_both_forms(phrase) for phrase in phrases]
         return phrases, scores
 
     def _regenerate_under(self, new_limit: int) -> None:
-        """Kick off a background regeneration under ``new_limit``."""
+        """Kick off a background regeneration under ``new_limit``.
+
+        Snapshots :attr:`random_mode` here, on the main thread, and
+        passes it to the worker as an explicit argument. This keeps
+        the worker thread free of reactive reads and means a mode
+        flip mid-generation does not race against an in-flight batch.
+        """
         self._pending_limit = new_limit
-        self._regenerate_worker(new_limit)
+        self._regenerate_worker(new_limit, self.random_mode)
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Swap in the regenerated batch, or roll back on failure."""

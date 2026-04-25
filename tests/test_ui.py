@@ -9,6 +9,7 @@ rhyme candidates.
 
 from __future__ import annotations
 
+from rhymepass.randomgen import SAFE_SYMBOLS
 from rhymepass.strength import format_strength
 from rhymepass.ui import LimitModal, PassphraseApp
 
@@ -245,3 +246,131 @@ class TestStrengthIndicator:
             # spaces_on=False -> lookup index 1 (the unspaced score).
             assert format_strength(4) in str(option_list.get_option_at_index(0).prompt)
             assert format_strength(3) in str(option_list.get_option_at_index(1).prompt)
+
+
+class TestPassphraseAppMode:
+    """Mode-toggle (``m``) behaviour: state, CSS, regeneration, modal min.
+
+    Each test waits for the regeneration worker via
+    ``app.workers.wait_for_complete()`` after pressing ``m`` because the
+    mode flip dispatches a thread worker that runs asynchronously - a
+    bare ``pilot.pause()`` would race against worker completion.
+    """
+
+    async def test_m_toggles_random_mode_reactive(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Pressing ``m`` flips ``app.random_mode`` and pressing again restores it."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.random_mode is False
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.random_mode is True
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.random_mode is False
+
+    async def test_m_adds_and_removes_css_class(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """The ``random-mode`` CSS class is what drives the purple accent."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert not app.has_class("random-mode")
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.has_class("random-mode")
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert not app.has_class("random-mode")
+
+    async def test_m_replaces_batch_with_random_passwords(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """After ``m`` the visible batch contains random passwords, not couplets."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # Random passwords have no rhyming separator and no whitespace.
+            for password in app._passphrases:
+                assert " / " not in password
+                assert " " not in password
+                # Sanity: at least one safe symbol must be present.
+                assert any(c in SAFE_SYMBOLS for c in password)
+
+    async def test_random_mode_modal_accepts_short_limit(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Limit modal accepts 8 in random mode; the same value would be rejected in rhyme mode."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("l")
+            await pilot.pause()
+            assert isinstance(app.screen, LimitModal)
+            # Replace the default 0 with 8. In rhyme mode this would
+            # be rejected (MIN_SINGLE_LEN=9); in random mode the
+            # minimum is 4 so 8 must be accepted.
+            await pilot.press("8")
+            await pilot.pause()
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert not isinstance(app.screen, LimitModal)
+            assert app.limit == 8
+
+    async def test_status_bar_shows_mode(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Status bar shows ``Mode: rhyme`` / ``Mode: random`` and hides Spaces in random mode."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            status = app.query_one("#status-bar")
+            assert "Mode: rhyme" in str(status.render())
+            assert "Spaces:" in str(status.render())
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "Mode: random" in str(status.render())
+            assert "Spaces:" not in str(status.render())
+
+    async def test_key_hints_drop_x_in_random_mode(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Footer hint omits the ``x: toggle spaces`` hint when in random mode."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            hints = app.query_one("#key-hints")
+            assert "x: toggle spaces" in str(hints.render())
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "x: toggle spaces" not in str(hints.render())
+            assert "m: mode" in str(hints.render())

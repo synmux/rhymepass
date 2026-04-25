@@ -10,6 +10,13 @@ Those nimble amyloid / such gentle android / 16
 
 Each passphrase is a rhyming couplet built from real English words, padded with light filler words, plus two random digits. Readable, pronounceable, easy to transcribe, and awkward to guess.
 
+Need raw entropy instead - say, for a legacy field that caps at 8 characters, or anywhere a memorable phrase is overkill? Press `m` in the picker to flip into **random mode**: the same UX in violet, generating fixed-length passwords drawn from a curated, shell-/HTTP-safe character set.
+
+```plaintext
+KvR3@m,Lp9-T_eXq.j2bA:cN8
+H§p.7-eR4z@nQ,sB
+```
+
 ## Install
 
 From PyPI:
@@ -53,14 +60,15 @@ rhymepass --version  # print the installed version
 
 Use the arrow keys to highlight a passphrase, then press enter - the selected passphrase is copied to your clipboard and the tool exits.
 
-| Key         | What it does                                                                                                                                                                                                                                                                              |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `↑` / `↓`   | Move the highlight.                                                                                                                                                                                                                                                                       |
-| `enter`     | Copy the highlighted passphrase and exit.                                                                                                                                                                                                                                                 |
-| `x`         | Toggle whether spaces are shown. The per-row character count and the strength indicator both update to reflect the displayed form, since that is the password you would actually copy. The character **limit**, however, is always enforced against the spaced form, so toggling is safe. |
-| `l`         | Prompt for a character limit. `0` means no limit (the default); any positive value must be at least 9 characters. The batch regenerates so every passphrase fits under the new limit.                                                                                                     |
-| `r`         | Regenerate the batch with the current settings.                                                                                                                                                                                                                                           |
-| `esc` / `q` | Exit without copying anything.                                                                                                                                                                                                                                                            |
+| Key         | What it does                                                                                                                                                                                                                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `↑` / `↓`   | Move the highlight.                                                                                                                                                                                                                                                                                         |
+| `enter`     | Copy the highlighted passphrase and exit.                                                                                                                                                                                                                                                                   |
+| `x`         | Toggle whether spaces are shown (rhyme mode only). The per-row character count and the strength indicator both update to reflect the displayed form, since that is the password you would actually copy. The character **limit**, however, is always enforced against the spaced form, so toggling is safe. |
+| `l`         | Prompt for a character limit. `0` means no limit (the default). In rhyme mode the minimum is 9 characters (`"Abcd / 12"`); in random mode the minimum drops to 4. The batch regenerates so every passphrase fits the new limit.                                                                             |
+| `m`         | Toggle between **rhyme mode** (memorable couplets, the default) and **random mode** (fixed-length passwords from `a–z A–Z 0–9 @-_.,:§`). Random mode flips the accent colour to violet so it is always obvious which mode is active.                                                                        |
+| `r`         | Regenerate the batch with the current settings.                                                                                                                                                                                                                                                             |
+| `esc` / `q` | Exit without copying anything.                                                                                                                                                                                                                                                                              |
 
 Each row in the picker ends with a strength indicator built from [`zxcvbn`](https://pypi.org/project/zxcvbn/). The score (`0`–`4`) is rendered as an emoji followed by `" | "` and a one-to-five star run:
 
@@ -73,6 +81,8 @@ Each row in the picker ends with a strength indicator built from [`zxcvbn`](http
 | 4     | 🥳 \| ⭐⭐⭐⭐⭐ |
 
 Under a tight character budget the picker first drops filler words from the rhyming couplet, then (below ~16 characters) falls back to a single-statement form like `Half dally / 17`. The `" / NN"` two-digit suffix is always preserved.
+
+In random mode the limit is interpreted as the **exact** length (with `0` meaning the default of 24). Every output is guaranteed to contain at least one lowercase letter, uppercase letter, digit, and safe symbol, with the remaining slots drawn uniformly from the combined alphabet and the final order shuffled with `secrets.SystemRandom`. The "safe symbols" set is `@-_.,:§` - characters that have no special meaning in shells, URLs, regex, or common form-validation rules - so generated passwords paste cleanly into command lines, web forms, and config files without quoting.
 
 ### In a pipe
 
@@ -98,13 +108,17 @@ rhymepass 3 | cat
 
 ```python
 from rhymepass import (
+    DEFAULT_RANDOM_LEN,
+    SAFE_SYMBOLS,
     build_anchor_pool,
     format_strength,
     generate,
+    generate_random,
     load_real_words,
     score_passphrase,
 )
 
+# Rhyming flavour
 real_words = load_real_words()
 pool = build_anchor_pool(real_words)
 
@@ -113,6 +127,11 @@ print(generate(pool, real_words, limit=24))      # fit under 24 characters
 
 score = score_passphrase(phrase)                 # 0..4 from zxcvbn
 print(phrase, "|", format_strength(score))       # "<phrase> | 🥳 | ⭐⭐⭐⭐⭐"
+
+# Random flavour - fixed-length, alphabet = a-z A-Z 0-9 + SAFE_SYMBOLS
+print(SAFE_SYMBOLS)                              # "@-_.,:§"
+print(generate_random())                         # DEFAULT_RANDOM_LEN (24) chars
+print(generate_random(length=12))                # exactly 12 chars
 ```
 
 [`load_real_words`](./src/rhymepass/anchors.py) and [`build_anchor_pool`](./src/rhymepass/anchors.py) are comparatively expensive; call them once per process and reuse the result for as many `generate` calls as you need. [`score_passphrase`](./src/rhymepass/strength.py) is fast (a few milliseconds per call) and safe to invoke per generation.
