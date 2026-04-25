@@ -30,16 +30,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, OptionList, Static
 from textual.worker import Worker, WorkerState
 
-from rhymepass.generator import MIN_SINGLE_LEN, generate
-from rhymepass.randomgen import (
-    ALL_SYMBOLS,
-    DEFAULT_RANDOM_LEN,
-    DIGITS,
-    LOWERCASE,
-    SAFE_SYMBOLS,
-    UPPERCASE,
-    generate_random,
-)
+from rhymepass.batch import generate_batch
+from rhymepass.generator import MIN_SINGLE_LEN
+from rhymepass.randomgen import DEFAULT_CHARSET, resolve_classes
 from rhymepass.strength import format_strength, score_passphrase
 
 _CLASS_KEY_ORDER: tuple[tuple[str, str, str], ...] = (
@@ -56,9 +49,6 @@ the key is the binding (and the visible chip in the bar) and the label
 is the human-readable column. Single source of truth so the bar text,
 the bindings, and the actions cannot drift out of sync.
 """
-
-_DEFAULT_CHARSET: frozenset[str] = frozenset({"upper", "lower", "digits", "safe"})
-"""Initial random-mode charset: every default class except "all"."""
 
 
 def _score_both_forms(passphrase: str) -> tuple[int, int]:
@@ -200,7 +190,7 @@ class PassphraseApp(App[str | None]):
     #card {
         width: auto;
         height: auto;
-        max-width: 90%;
+        max-width: 100%;
         max-height: 90%;
         padding: 1 2;
         border: thick $primary;
@@ -247,9 +237,19 @@ class PassphraseApp(App[str | None]):
     /* Random-mode accent swap. Adding the `random-mode` class to the
        App swaps the rhyming-blue accents for Tailwind violet-500.
        The literal hex avoids depending on Textual's theme-scoped
-       `$accent` token, which can vary between light/dark themes. */
+       `$accent` token, which can vary between light/dark themes.
+
+       The `min-width` here guarantees the card is always wide enough
+       to fit the (compact) charset bar, even when the OptionList
+       rows are narrower. Without this, `width: auto` would size the
+       card to the rows and the bar's `width: 100%` would be clipped
+       to that smaller box - hiding chips on the right edge. The
+       value is the chip-text width (~58 cells for all five chips
+       in their longest "all enabled" form) plus the card's chrome
+       (2 cells of border + 4 cells of horizontal padding). */
     PassphraseApp.random-mode #card {
         border: thick #8b5cf6;
+        min-width: 64;
     }
     PassphraseApp.random-mode #status-bar {
         background: #8b5cf6 30%;
@@ -278,7 +278,7 @@ class PassphraseApp(App[str | None]):
     spaces_on: reactive[bool] = reactive(True)
     limit: reactive[int] = reactive(0)
     random_mode: reactive[bool] = reactive(False)
-    charset: reactive[frozenset[str]] = reactive(_DEFAULT_CHARSET)
+    charset: reactive[frozenset[str]] = reactive(DEFAULT_CHARSET)
 
     def __init__(
         self,
@@ -286,15 +286,36 @@ class PassphraseApp(App[str | None]):
         pool: list[str],
         real_words: set[str],
         seeded: list[str],
+        *,
+        spaces_on: bool = True,
+        limit: int = 0,
+        random_mode: bool = False,
+        charset: frozenset[str] = DEFAULT_CHARSET,
     ) -> None:
         """Store the pool/word-set for regeneration and seed the list.
+
+        The four keyword-only ``*_on``/``limit``/``random_mode``/``charset``
+        arguments let the CLI seed the picker with a non-default
+        opening state. They map straight onto the matching reactive
+        attributes so :meth:`compose` can render them on first paint.
 
         Args:
             count: How many passphrases to keep visible at once.
             pool: Anchor pool used for regeneration.
             real_words: Word-set filter used to validate rhyme
                 candidates during regeneration.
-            seeded: Initial batch of passphrases to display.
+            seeded: Initial batch of passphrases to display. Must
+                have been generated under the same mode/limit/charset
+                this constructor is being given so the seeded rows
+                are consistent with the picker's reactive state.
+            spaces_on: Initial value for :attr:`spaces_on`. Default
+                ``True``.
+            limit: Initial value for :attr:`limit`. Default ``0``
+                (no limit).
+            random_mode: Initial value for :attr:`random_mode`.
+                Default ``False`` (rhyming mode).
+            charset: Initial value for :attr:`charset`. Default is
+                :data:`rhymepass.randomgen.DEFAULT_CHARSET`.
         """
         super().__init__()
         self._count = count
@@ -305,6 +326,13 @@ class PassphraseApp(App[str | None]):
             _score_both_forms(phrase) for phrase in seeded
         ]
         self._pending_limit: int | None = None
+        # Seed the reactives before mount so compose() renders the
+        # status bar, charset bar, and option list with the caller's
+        # opening state instead of the class-level defaults.
+        self.spaces_on = spaces_on
+        self.limit = limit
+        self.random_mode = random_mode
+        self.charset = charset
 
     def compose(self) -> ComposeResult:
         """Build the main-screen layout as a centred card.
@@ -316,13 +344,29 @@ class PassphraseApp(App[str | None]):
         yield Container(
             Static(self._status_text(), id="status-bar"),
             Static(self._charset_text(), id="charset-bar"),
-            OptionList(id="passphrase-list"),
+            # markup=False makes the OptionList render rows as
+            # literal text. Random-mode passwords with the `all`
+            # class enabled can contain `[` / `]` (every printable
+            # ASCII punctuation character), which Rich's parser
+            # would otherwise try to interpret as markup tags and
+            # raise MarkupError on. The status, charset, and
+            # key-hint Statics keep markup parsing on because they
+            # use `[b]`, `[dim]`, etc.
+            OptionList(id="passphrase-list", markup=False),
             Static(self._key_hints_text(), id="key-hints"),
             id="card",
         )
 
     def on_mount(self) -> None:
-        """Populate the list with the seeded batch once mounted."""
+        """Apply the random-mode CSS class (if needed) and paint the seeded list.
+
+        ``set_class`` here is the on-mount counterpart to the call in
+        :meth:`action_toggle_mode`: when the picker opens with
+        ``random_mode=True`` (because the CLI passed ``--mode random``),
+        the violet accents and visible charset bar must be applied
+        immediately rather than waiting for the user to press ``m``.
+        """
+        self.set_class(self.random_mode, "random-mode")
         self._refresh_list()
 
     # Rendering helpers ------------------------------------------------
@@ -374,6 +418,13 @@ class PassphraseApp(App[str | None]):
         on/off state. Bold + tick (``✓``) for enabled,
         muted + dot (``·``) for disabled. The chip order is fixed
         by :data:`_CLASS_KEY_ORDER`.
+
+        The chip layout is deliberately compact (no ``Charset:``
+        prefix; single space between chips) so all five chips fit
+        within the random-mode card's :data:`min-width` of 60 cells
+        on narrow terminals. Together with the card's ``min-width``
+        rule this keeps the chips visible regardless of how short
+        the seeded passphrase rows are.
         """
         chips: list[str] = []
         for key, label, name in _CLASS_KEY_ORDER:
@@ -381,7 +432,7 @@ class PassphraseApp(App[str | None]):
                 chips.append(f"[b][{key}] {label} ✓[/b]")
             else:
                 chips.append(f"[dim][{key}] {label} ·[/dim]")
-        return " Charset:  " + "  ".join(chips)
+        return " " + " ".join(chips)
 
     def _refresh_charset_bar(self) -> None:
         """Re-render the charset bar from the current charset reactive."""
@@ -390,26 +441,14 @@ class PassphraseApp(App[str | None]):
     def _active_classes(self) -> tuple[str, ...]:
         """Return the active character-class strings for ``generate_random``.
 
-        Maps the internal class names in :attr:`charset` to the
-        corresponding string constants in :mod:`rhymepass.randomgen`.
-        ``"all"`` and ``"safe"`` are treated as a unit: when ``"all"``
-        is enabled, :data:`ALL_SYMBOLS` (which already contains the
-        safe set) is appended in place of :data:`SAFE_SYMBOLS`. The
-        ``_toggle_class`` constraints make ``"all"`` without
-        ``"safe"`` impossible, so we never lose the safe baseline.
+        Thin wrapper over :func:`rhymepass.randomgen.resolve_classes`
+        so the CLI and the picker reference one mapping. The picker's
+        ``_toggle_class`` constraints guarantee ``"all"`` and
+        ``"safe"`` are coherent in :attr:`charset`; the resolver does
+        the rest (folding ``"safe"`` into ``"all"`` when both are set,
+        producing the tuple in display order).
         """
-        parts: list[str] = []
-        if "upper" in self.charset:
-            parts.append(UPPERCASE)
-        if "lower" in self.charset:
-            parts.append(LOWERCASE)
-        if "digits" in self.charset:
-            parts.append(DIGITS)
-        if "all" in self.charset:
-            parts.append(ALL_SYMBOLS)
-        elif "safe" in self.charset:
-            parts.append(SAFE_SYMBOLS)
-        return tuple(parts)
+        return resolve_classes(self.charset)
 
     def _display_form(self, spaced: str) -> str:
         """Return the passphrase in its current display form.
@@ -439,6 +478,11 @@ class PassphraseApp(App[str | None]):
         # The strength indicator is looked up from the pre-cached
         # (spaced, unspaced) score pair so the toggle keystroke does
         # not block on a fresh zxcvbn call.
+        #
+        # The OptionList itself is constructed with `markup=False`
+        # (see :meth:`compose`) so password content with `[` or `]`
+        # in the `all`-symbols class never gets parsed as Rich
+        # markup. Every row is therefore rendered as literal text.
         display_forms = [self._display_form(phrase) for phrase in self._passphrases]
         column_width = max(len(form) for form in display_forms)
         rows = [
@@ -612,14 +656,12 @@ class PassphraseApp(App[str | None]):
     ) -> tuple[list[str], list[tuple[int, int]]]:
         """Regenerate the passphrase batch on a worker thread.
 
-        Dispatches on the mode captured by the caller on the main
-        thread: rhyming mode calls
-        :func:`rhymepass.generator.generate`, random mode calls
-        :func:`rhymepass.randomgen.generate_random` with the resolved
-        ``classes`` tuple. Capturing both ``random_mode`` and
-        ``classes`` at the call site (rather than reading the
-        reactives here) keeps the worker free of any cross-thread
-        reactive reads.
+        Delegates rhyme-vs-random dispatch to
+        :func:`rhymepass.batch.generate_batch`, which is the helper
+        shared with :func:`rhymepass.cli.main`'s pipe path. Capturing
+        both ``random_mode`` and ``classes`` at the call site (rather
+        than reading the reactives here) keeps the worker free of any
+        cross-thread reactive reads.
 
         Returning normally signals success; raising
         :class:`ValueError` (from ``generate_random`` when the limit
@@ -638,10 +680,10 @@ class PassphraseApp(App[str | None]):
             new_limit: The character limit to enforce for this batch.
                 In rhyming mode this is an upper bound; in random
                 mode it is the exact length (with ``0`` meaning
-                :data:`DEFAULT_RANDOM_LEN`).
-            random_mode: ``True`` to call ``generate_random``,
-                ``False`` to call the rhyming generator. Captured
-                snapshot from the main thread at dispatch time.
+                :data:`rhymepass.randomgen.DEFAULT_RANDOM_LEN`).
+            random_mode: ``True`` to draw fully random passwords,
+                ``False`` for rhyming couplets. Captured snapshot
+                from the main thread at dispatch time.
             classes: Resolved character-class strings for random
                 mode, produced by :meth:`_active_classes`. Ignored
                 in rhyme mode but always passed for shape stability.
@@ -651,17 +693,14 @@ class PassphraseApp(App[str | None]):
             parallel list of ``(score_with_spaces, score_without_spaces)``
             pairs. Both lists have length ``self._count``.
         """
-        if random_mode:
-            target_len = new_limit if new_limit > 0 else DEFAULT_RANDOM_LEN
-            phrases = [
-                generate_random(length=target_len, classes=classes)
-                for _ in range(self._count)
-            ]
-        else:
-            phrases = [
-                generate(self._pool, self._real_words, limit=new_limit)
-                for _ in range(self._count)
-            ]
+        phrases = generate_batch(
+            self._count,
+            self._pool,
+            self._real_words,
+            random_mode=random_mode,
+            limit=new_limit,
+            classes=classes,
+        )
         scores = [_score_both_forms(phrase) for phrase in phrases]
         return phrases, scores
 
@@ -732,6 +771,11 @@ def run_interactive_app(
     pool: list[str],
     real_words: set[str],
     seeded: list[str],
+    *,
+    spaces_on: bool = True,
+    limit: int = 0,
+    random_mode: bool = False,
+    charset: frozenset[str] = DEFAULT_CHARSET,
 ) -> str | None:
     """Launch the interactive picker and return the chosen passphrase.
 
@@ -740,11 +784,27 @@ def run_interactive_app(
         pool: Anchor pool for regeneration.
         real_words: GCIDE word filter for regeneration.
         seeded: The initial batch of passphrases to display.
+        spaces_on: Initial value for the picker's spaces toggle.
+        limit: Initial value for the picker's character limit.
+        random_mode: ``True`` to open in random mode (violet accent,
+            charset bar visible); ``False`` (the default) for rhyme
+            mode.
+        charset: Initial random-mode character classes. Ignored
+            until the user enters random mode.
 
     Returns:
         The selected passphrase in the display form the user saw
         (spaces stripped if the toggle was off), or ``None`` if the
         user cancelled.
     """
-    app = PassphraseApp(count=count, pool=pool, real_words=real_words, seeded=seeded)
+    app = PassphraseApp(
+        count=count,
+        pool=pool,
+        real_words=real_words,
+        seeded=seeded,
+        spaces_on=spaces_on,
+        limit=limit,
+        random_mode=random_mode,
+        charset=charset,
+    )
     return app.run()

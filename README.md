@@ -52,13 +52,39 @@ Two commands land the same tool on your `$PATH`:
 ### In a terminal
 
 ```sh
-rhymepass            # shows five passphrases in an interactive picker
-rhymepass 10         # shows ten
-rhymepass --help     # usage summary
+rhymepass            # picker, 5 rhyming phrases (default)
+rhymepass 10         # picker with 10 phrases
+rhymepass --help     # full option summary
 rhymepass --version  # print the installed version
 ```
 
-Use the arrow keys to highlight a passphrase, then press enter - the selected passphrase is copied to your clipboard and the tool exits.
+Every interactive picker control is also reachable as a CLI flag. The flags become the **opening state** of the picker (or the configuration of the one-shot pipe path); inside the picker, the same controls remain available as key bindings.
+
+| Option                               | What it does                                                                                                                                                                      |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[count]`                            | How many passphrases to generate. Default `5`, must be `≥ 1`.                                                                                                                     |
+| `-m, --mode {rhyme,random}`          | Generation mode. `rhyme` (default) builds memorable couplets; `random` builds fixed-length passwords from a curated character set.                                                |
+| `-l, --limit N`                      | Length constraint. Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes. |
+| `--spaces` / `--no-spaces`           | Show or hide interior spaces in rhyme output. Defaults to showing spaces. No-op in random mode.                                                                                   |
+| `-c, --classes CSV`                  | Comma-separated random-mode character classes. Choose any non-empty subset of `upper,lower,digits,safe,all`. Defaults to `upper,lower,digits,safe`. Rejected in rhyme mode.       |
+| `--interactive` / `--no-interactive` | Force the picker on or off. By default the picker is shown when stdout is a TTY.                                                                                                  |
+| `-v, --version`                      | Print the installed version and exit.                                                                                                                                             |
+| `-h, --help`                         | Print the help summary and exit.                                                                                                                                                  |
+
+A few common one-liners:
+
+```sh
+rhymepass --mode random 1                          # one 24-char random password
+rhymepass -m random -l 16 5                        # five 16-char random passwords
+rhymepass -m random -c upper,digits 8              # eight uppercase+digit passwords
+rhymepass -m random -c upper,lower,digits,all 1    # one max-entropy password
+rhymepass --no-spaces 3 | pbcopy                   # rhymes with no interior spaces
+rhymepass -l 24 5                                  # five rhymes, each ≤ 24 chars
+```
+
+#### In the picker
+
+When stdout is a TTY (and `--no-interactive` is not set), `rhymepass` opens an interactive picker. Use the arrow keys to highlight a passphrase, then press enter - the selected passphrase is copied to your clipboard and the tool exits. CLI flags become the **opening** state, so `rhymepass --mode random --limit 32 --classes upper,digits` opens directly in random mode at limit 32 with that charset; the keys below still mutate the state interactively.
 
 | Key         | What it does                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -76,9 +102,9 @@ Each row in the picker ends with a strength indicator built from [`zxcvbn`](http
 | Score | Indicator        |
 | ----- | ---------------- |
 | 0     | 🤮 \| ⭐         |
-| 1     | 🙁 \| ⭐⭐       |
+| 1     | ☹️ \| ⭐⭐       |
 | 2     | 🫤 \| ⭐⭐⭐     |
-| 3     | 🙂 \| ⭐⭐⭐⭐   |
+| 3     | 😀 \| ⭐⭐⭐⭐   |
 | 4     | 🥳 \| ⭐⭐⭐⭐⭐ |
 
 Under a tight character budget the picker first drops filler words from the rhyming couplet, then (below ~16 characters) falls back to a single-statement form like `Half dally / 17`. The `" / NN"` two-digit suffix is always preserved.
@@ -96,8 +122,6 @@ The strength indicator is written to **stderr**, one line per passphrase, while 
 ```sh
 rhymepass 3 | cat
 # stdout (visible to cat):
-#   Anchor pool: 24,439 words
-#
 #   Those nimble amyloid / such gentle android / 16
 #   Our bold missourian / some hopeful centurion / 84
 #   Any tactile contemn / much calm condemn / 84
@@ -106,6 +130,8 @@ rhymepass 3 | cat
 #   🥳 | ⭐⭐⭐⭐⭐
 #   🥳 | ⭐⭐⭐⭐⭐
 ```
+
+stdout therefore contains exactly `count` lines, each a complete passphrase, with no header, blank lines, or other metadata. `rhymepass 5 | head -1` is guaranteed to return the first passphrase.
 
 ### As a library
 

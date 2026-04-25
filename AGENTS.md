@@ -9,19 +9,21 @@ Guide for AI agents (and humans) working inside this repository. `CLAUDE.md` is 
 - **Rhyme mode (default).** Picks a random anchor word, finds phonetic rhymes via the CMU Pronouncing Dictionary, filters them against the GCIDE English dictionary, wraps each side in filler words (determiners, adjectives), and appends two random digits. Format: `"<Phrase A> / <phrase B> / <NN>"` - e.g. `"The underground parade / an undelivered accolade / 38"`.
 - **Random mode.** Fully random fixed-length string drawn uniformly from a user-chosen subset of five character classes: uppercase, lowercase, numbers, safe symbols (`@-_.,:§`), and all symbols (the safe set plus the unsafe ASCII punctuation we normally exclude). One character from each enabled class is guaranteed; positions are shuffled with `secrets.SystemRandom`. Selectable in the picker by pressing `m` (flips the accent colour to violet); the active classes are toggled with keys `1`–`5` and shown in a charset bar that appears only in random mode.
 
-Every candidate is also scored with [`zxcvbn`](https://pypi.org/project/zxcvbn/) and tagged with a strength indicator: an emoji (`🤮 / 🙁 / 🫤 / 🙂 / 🥳`) plus a one-to-five star run, joined by `" | "`. In the picker the indicator is the trailing column of each row and is recomputed against the displayed form (so toggling spaces with `x` updates it). In pipe mode the indicator goes to **stderr**, so pipes/redirections that consume stdout still receive a clean passphrase stream.
+Every candidate is also scored with [`zxcvbn`](https://pypi.org/project/zxcvbn/) and tagged with a strength indicator: an emoji (`🤮 / ☹️ / 🫤 / 😀 / 🥳`) plus a one-to-five star run, joined by `" | "`. In the picker the indicator is the trailing column of each row and is recomputed against the displayed form (so toggling spaces with `x` updates it). In pipe mode the indicator goes to **stderr**, so pipes/redirections that consume stdout still receive a clean passphrase stream.
 
-In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, mode toggle, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all. The CLI / pipe path is currently rhyme-only; the random mode is reachable only from the interactive picker (a `--random` flag is a follow-up candidate, not implemented).
+In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, mode toggle, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all. Both flavours are reachable from both surfaces: every interactive control has a matching CLI flag (`--mode`, `--limit`, `--spaces`/`--no-spaces`, `--classes`), and the picker accepts those flags as its **opening reactive state** (the picker still mutates that state via its bindings - flags set the _opening_ state, not a lock).
 
-Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). Both call `rhymepass.cli:main`.
+Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). Both call `rhymepass.cli:main`, a `click.Command`.
 
 ## Layout
 
 ```plaintext
 src/rhymepass/
-├── __init__.py        public API: generate, generate_random, build_anchor_pool,
-│                      load_real_words, score_passphrase, format_strength,
-│                      SAFE_SYMBOLS, DEFAULT_RANDOM_LEN, MIN_RANDOM_LEN, __version__
+├── __init__.py        public API: generate, generate_random, generate_batch,
+│                      resolve_classes, build_anchor_pool, load_real_words,
+│                      score_passphrase, format_strength, SAFE_SYMBOLS,
+│                      DEFAULT_RANDOM_LEN, MIN_RANDOM_LEN, DEFAULT_CHARSET,
+│                      CLASS_NAMES, __version__
 ├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (112) - hand-curated filler banks
 ├── anchors.py         load_real_words, _syllable_count, _is_good_anchor, build_anchor_pool
 ├── phrases.py         _starts_with_vowel_sound, _pick_determiner, _build_phrase,
@@ -29,47 +31,71 @@ src/rhymepass/
 ├── generator.py       shape constants (SUFFIX_LEN, COUPLET_SEP_LEN, MIN_*) and generate()
 ├── randomgen.py       LOWERCASE/UPPERCASE/DIGITS/SAFE_SYMBOLS/UNSAFE_SYMBOLS/
 │                      ALL_SYMBOLS, DEFAULT_RANDOM_LEN, MIN_RANDOM_LEN,
-│                      generate_random(length, classes)
+│                      CLASS_NAMES, DEFAULT_CHARSET, generate_random(length,
+│                      classes), resolve_classes(names)
+├── batch.py           generate_batch(count, pool, real_words, *, random_mode,
+│                      limit, classes) - rhyme/random dispatch shared by the
+│                      CLI pipe path and the picker's regen worker
 ├── strength.py        score_passphrase (zxcvbn wrapper), format_strength (emoji + stars)
 ├── clipboard.py       copy_to_clipboard (cross-platform; pbcopy/wl-copy/xclip/xsel/clip)
-├── cli.py             _parse_count, _handle_flags, main - thin orchestration
-└── ui.py              PassphraseApp (with random_mode + charset reactives),
-                       LimitModal, run_interactive_app, _score_both_forms,
-                       _CLASS_KEY_ORDER, _DEFAULT_CHARSET
+├── cli.py             Click command exposing --mode/--limit/--spaces/--classes/
+│                      --interactive plus -v/-h; lazy-loads the pool only when
+│                      needed; pipe path uses generate_batch directly; TTY path
+│                      forwards parsed flags to run_interactive_app as initial
+│                      reactive state
+└── ui.py              PassphraseApp (with random_mode + charset reactives,
+                       keyword-only initial-state args), LimitModal,
+                       run_interactive_app, _score_both_forms, _CLASS_KEY_ORDER
 tests/
 ├── conftest.py        session-scoped real_words + anchor_pool fixtures; tiny_pool
 ├── test_anchors.py    anchor-quality rules + pool construction
-├── test_cli.py        _parse_count, --help/--version flag handling
+├── test_batch.py      generate_batch dispatch shape; rhyme requires pool;
+│                      random tolerates pool=None
+├── test_cli.py        Click CliRunner: help/version, count, mode/limit/spaces/
+│                      classes, validation errors, --no-interactive override,
+│                      stderr-only strength indicator routing
 ├── test_clipboard.py  per-platform backend dispatch (mocked subprocess)
 ├── test_generator.py  generate() shape, limit enforcement, error paths
 ├── test_phrases.py    phrase builder helpers (monkeypatch for deterministic branches)
-├── test_random.py     generate_random shape/length/error paths + SAFE_SYMBOLS content
+├── test_random.py     generate_random shape/length/error paths + SAFE_SYMBOLS
+│                      content + resolve_classes name->constant mapping
 ├── test_strength.py   format_strength rubric + real zxcvbn scoring (no mocks)
-├── test_ui.py         Textual pilot: key bindings, modal validation, strength rendering,
-│                      mode toggle (TestPassphraseAppMode)
+├── test_ui.py         Textual pilot: key bindings, modal validation, strength
+│                      rendering, mode toggle (TestPassphraseAppMode), charset
+│                      toggles (TestPassphraseAppCharset), initial-state
+│                      constructor args (TestPassphraseAppInitialState)
 └── test_wordbanks.py  static invariants on the filler lists
 ```
 
 ## Public API
 
-`rhymepass/__init__.py` exposes the generators, the supporting fixtures, the strength helpers, three random-mode constants, and the version:
+`rhymepass/__init__.py` exposes the generators, the supporting fixtures, the strength helpers, the random-mode constants and class-name registry, the batch dispatch helper, and the version:
 
 ```python
 from rhymepass import (
+    ALL_SYMBOLS,
+    CLASS_NAMES,
+    DEFAULT_CHARSET,
     DEFAULT_RANDOM_LEN,
+    DIGITS,
+    LOWERCASE,
     MIN_RANDOM_LEN,
     SAFE_SYMBOLS,
+    UNSAFE_SYMBOLS,
+    UPPERCASE,
     __version__,
     build_anchor_pool,
     format_strength,
     generate,
+    generate_batch,
     generate_random,
     load_real_words,
+    resolve_classes,
     score_passphrase,
 )
 ```
 
-`load_real_words()` and `build_anchor_pool(real_words)` are comparatively expensive (~1 s combined on a warm import cache); call them once per process and reuse the result for any number of `generate()` calls. `score_passphrase()` and `format_strength()` are cheap and stateless - safe to call per generation. `generate_random()` is constant-time in its `length` argument, has no setup cost, and never fails for `length >= MIN_RANDOM_LEN` (4); it does **not** need or accept the anchor pool.
+`load_real_words()` and `build_anchor_pool(real_words)` are comparatively expensive (~1 s combined on a warm import cache); call them once per process and reuse the result for any number of `generate()` calls. `score_passphrase()` and `format_strength()` are cheap and stateless - safe to call per generation. `generate_random()` is constant-time in its `length` argument, has no setup cost, and never fails for `length >= MIN_RANDOM_LEN` (4); it does **not** need or accept the anchor pool. `generate_batch()` is a thin dispatch over `generate()` and `generate_random()` shared by the CLI pipe path and the picker's regen worker; rhyme mode requires the pool, random mode tolerates `pool=None`. `resolve_classes()` maps internal class names (`"upper"`, `"lower"`, `"digits"`, `"safe"`, `"all"`) to the corresponding string constants in display order; `"all"` replaces `"safe"` in the resolved tuple because `ALL_SYMBOLS` already contains the safe baseline.
 
 ## Generator strategy
 
@@ -118,13 +144,48 @@ Constants (in `rhymepass.randomgen`):
 
 The 69-char default alphabet gives ≈ 6.11 bits per character, so the 24-char default carries ~146 bits of entropy. With "all symbols" enabled the alphabet grows to 95 chars (~6.57 bits/char). `SAFE_SYMBOLS` was deliberately chosen to skip every ASCII shell metacharacter and every URL-special character, plus a single Unicode addition (`§`) that is UTF-8 safe across well-formed HTTP forms. **If you change `SAFE_SYMBOLS`, update the rationale table in this file and the README, and check `tests/test_random.py::TestSafeSymbolsContent` and `TestSymbolUnion` still assert the right invariants.**
 
+`rhymepass.randomgen.resolve_classes(names)` is the canonical mapping from internal class names to character-set strings. It is the single source of truth shared by `PassphraseApp._active_classes()` and the CLI's `--classes` callback. Pass an iterable of names from `CLASS_NAMES` (`"upper"`, `"lower"`, `"digits"`, `"safe"`, `"all"`) and get back a tuple of class strings in **display order** (`UPPERCASE`, `LOWERCASE`, `DIGITS`, then `ALL_SYMBOLS` if `"all"` else `SAFE_SYMBOLS` if `"safe"`). The cascade matters: `"all"` and `"safe"` are mutually exclusive in the _output_ (since `ALL_SYMBOLS` already contains the safe baseline), even when both are present in the input. The picker keeps both names lit on the charset bar in that case, but the resolved tuple is the same.
+
+`rhymepass.randomgen.DEFAULT_CHARSET` (`frozenset({"upper", "lower", "digits", "safe"})`) is the shared default for both the CLI's `--classes` option and `PassphraseApp.charset`. Lifting it out of `ui.py` means the CLI default and the picker default cannot drift.
+
+## CLI surface
+
+`rhymepass.cli:main` is a `click.Command` that exposes every interactive picker control as a flag. The CLI is the user-facing entry point for both console scripts (`rhymepass` and `rp`).
+
+Flag map (every key binding has a matching flag; the picker still accepts the binding):
+
+| Flag                                 | Picker key | Semantics                                                                                                                                                |
+| ------------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[count]` (positional)               | n/a        | Number of passphrases. Default `5`, must be `>= 1`. Click's `IntRange(min=1)` validates.                                                                 |
+| `-m, --mode {rhyme,random}`          | `m`        | Mode. Click's `Choice(case_sensitive=False)` accepts `RANDOM`, `Random`, etc.                                                                            |
+| `-l, --limit INT`                    | `l`        | Length constraint. Rhyme: max chars (0 or `>= MIN_SINGLE_LEN`). Random: exact length (0 means `DEFAULT_RANDOM_LEN`, otherwise `>= len(active_classes)`). |
+| `--spaces` / `--no-spaces`           | `x`        | Whether rhyme output keeps interior spaces. Silent no-op in random mode (rejecting it would force scripts to special-case mode).                         |
+| `-c, --classes CSV`                  | `1`-`5`    | Comma-separated subset of `CLASS_NAMES`. The callback validates membership and lower-cases for case-insensitive input. **Rejected with `--mode rhyme`.** |
+| `--interactive` / `--no-interactive` | n/a        | Force the picker on/off; default is `sys.stdout.isatty()`.                                                                                               |
+| `-v, --version`                      | n/a        | Click's `version_option`; prints `rhymepass <__version__>`.                                                                                              |
+| `-h, --help`                         | n/a        | Click's auto-generated help. `context_settings={"help_option_names": ["-h", "--help"]}` makes both spellings work.                                       |
+
+Validation is layered:
+
+1. **Click parameter types** catch trivial input errors (`--limit -1`, `--mode foobar`, missing values).
+2. **`_parse_classes_csv` callback** rejects unknown class names with a `BadParameter` listing the valid choices.
+3. **Body-level `UsageError`s** catch combinations Click cannot express in its decorators: `--classes` outside random mode, rhyme `--limit` below `MIN_SINGLE_LEN`, random `--limit` below `len(active_classes)`. These fire **before** any pool load so the user gets fast feedback on misuse.
+
+Pool loading is **lazy and conditional**. The CLI loads `real_words` and the anchor pool only if `use_picker or mode == "rhyme"`. Random pure-pipe invocations (`rhymepass --mode random | cat`) skip the ~1 s GCIDE+CMU load entirely. The picker always loads it because the user can press `m` to flip back to rhyme mode mid-session.
+
+Flag flow into the picker. When the TTY branch fires, parsed flags are passed to `run_interactive_app(count, pool, real_words, seeded, *, spaces_on, limit, random_mode, charset)` as keyword arguments. `PassphraseApp.__init__` assigns each one to its matching reactive **before** mount, and `on_mount` calls `set_class(self.random_mode, "random-mode")` so the violet accent paints from first frame instead of waiting for the user to press `m`. The picker's bindings still mutate the same reactives - flags set the _opening_ state, not a lock.
+
+The pipe path uses `generate_batch(...)` directly (no picker, no clipboard). For rhyme output it applies the `--no-spaces` strip via `phrase.replace(" ", "")` before printing - this matches the picker's `_display_form` exactly. Strength indicators go to **stderr** when stderr is a TTY, mirroring the previous behaviour. The TTY path goes straight from the seeded batch into `run_interactive_app`; there is no pre-picker chrome (the previous "Anchor pool: N words" header was removed because the picker's status bar already shows the pool size, and on the pipe side it mixed metadata into the password stream).
+
+stdout in pipe mode therefore contains exactly `count` lines, one passphrase per line, with no header or blank lines. Consumers like `rhymepass 5 | head -1` and `rhymepass 5 > file` can rely on every line being a complete passphrase.
+
 ## Textual UI
 
 `rhymepass.ui` exposes two module-level classes and a launcher:
 
 - **`LimitModal(ModalScreen[int | None])`** - centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). The constructor takes a `min_value` (defaulting to `MIN_SINGLE_LEN`); the parent screen passes `MIN_RANDOM_LEN` (4) when in random mode. ENTER validates and dismisses with the int (rejects values below `min_value` via a toast); ESC dismisses with `None`.
-- **`PassphraseApp(App[str | None])`** - the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows. Four reactives drive its state: `spaces_on`, `limit`, `random_mode`, and `charset` (a `frozenset[str]` holding the active class names: `upper`, `lower`, `digits`, `safe`, `all`).
-- **`run_interactive_app(count, pool, real_words, seeded)`** - instantiates the app and returns its result.
+- **`PassphraseApp(App[str | None])`** - the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows. Four reactives drive its state: `spaces_on`, `limit`, `random_mode`, and `charset` (a `frozenset[str]` holding the active class names: `upper`, `lower`, `digits`, `safe`, `all`). The constructor accepts a matching set of **keyword-only** initial-state arguments (`spaces_on`, `limit`, `random_mode`, `charset`) so the CLI can seed the picker's opening state. Defaults match the class-level reactive defaults so existing callers (and existing tests) need no change.
+- **`run_interactive_app(count, pool, real_words, seeded, *, spaces_on, limit, random_mode, charset)`** - instantiates the app and returns its result. Forwards every initial-state argument to `PassphraseApp.__init__`.
 
 **Key bindings (documented in the card's key-hint label, which itself adapts to the mode):**
 
@@ -222,28 +283,47 @@ The bar exists in both modes but is removed from the layout (`display: none`) in
 
 This is a deliberate departure from the previous single-file version, which nested the UI classes inside a function to achieve the same invariant. The module-boundary approach is cleaner, lets `ui.py` use standard top-level imports, and is still just as fast on the pipe path.
 
+`click` is imported at `cli.py`'s module top and is **always** loaded, even on the pipe path - but it is a single, lightweight package with no transitive dependencies, so the cost is negligible. Do not move it inside the TTY branch; the `@click.command` decorator runs at import time.
+
 ### Non-TTY gate in `cli.main()`
 
-`if not sys.stdout.isatty(): print each; return` - Textual needs a real terminal. The gate is mandatory; never unconditionally call `run_interactive_app`.
+The picker is shown when `sys.stdout.isatty()` is true (Textual needs a real terminal) **unless** the user overrides via `--interactive` / `--no-interactive`. The resolved decision lives in `use_picker = interactive if interactive is not None else sys.stdout.isatty()`. Never call `run_interactive_app` unconditionally - the lazy import is gated on the same boolean.
 
 ### Pipe-mode stdout/stderr split for the strength indicator
 
-In the non-TTY branch, passphrases go to **stdout** and the strength indicator goes to **stderr**, one line each per passphrase, both with `flush=True`:
+In the pipe branch, passphrases go to **stdout** and the strength indicator goes to **stderr**, one line each per passphrase. The new code uses `click.echo` (which flushes per call) instead of bare `print(..., flush=True)`:
 
 ```python
-if not sys.stdout.isatty():
+if not use_picker:
     show_strength = sys.stderr.isatty()
-    for passphrase in passphrases:
-        print(passphrase, flush=True)
+    for phrase in seeded:
+        display = (
+            phrase if mode == "random" or spaces else phrase.replace(" ", "")
+        )
+        click.echo(display)
         if show_strength:
-            print(format_strength(score_passphrase(passphrase)),
-                  file=sys.stderr, flush=True)
+            click.echo(format_strength(score_passphrase(display)), err=True)
     return
 ```
 
 This keeps `rhymepass 5 | xargs ...` and `rhymepass 5 > file` clean (consumers receive only the password) while still showing the indicator on an attached terminal. The `sys.stderr.isatty()` gate skips scoring entirely when stderr is also redirected (`> file 2>/dev/null`) - no point spending zxcvbn time on output nobody will see.
 
-The `flush=True` on both streams is correctness-critical: with default block-buffering on a non-TTY stdout, all the password lines would buffer and emit only at process exit, after every indicator. Don't remove the flushes.
+`click.echo` flushes its target stream after each call, so stdout and stderr stay correctly ordered when a terminal merges them. Don't replace it with bare `print` without restoring `flush=True`.
+
+### CLI flags become the picker's opening state, not a lock
+
+When the TTY branch fires, parsed flags are passed into `PassphraseApp.__init__` as keyword-only arguments (`spaces_on`, `limit`, `random_mode`, `charset`). The picker assigns each one to its matching reactive **before** mount, and `on_mount` calls `self.set_class(self.random_mode, "random-mode")` so the violet accent paints from frame zero. The picker's bindings (`m`, `l`, `x`, `r`, `1`-`5`) still mutate those reactives - **flags set the _opening_ state, not a lock**. A user who runs `rhymepass --mode random` can press `m` to flip to rhyme mode without restarting.
+
+Two consequences:
+
+1. The pool is loaded **whenever the picker is going to open**, not only when `mode == "rhyme"` at startup. The picker may need it after the user presses `m`. The CLI's `needs_pool = use_picker or mode == "rhyme"` captures this.
+2. The seeded batch must match the _opening_ mode/limit/charset; otherwise the user sees mismatched output for the first frame. The CLI guarantees this by passing the same parameters into `generate_batch` and into `run_interactive_app`.
+
+### Click subsumes the parser; no more `_parse_count` / `_handle_flags`
+
+The pre-Click `cli.py` had small helpers (`_parse_count`, `_handle_flags`, a `USAGE` string) that argparse-style libraries would have provided. They are gone. Click's decorators carry the full type system (`IntRange`, `Choice`), the help text, the version handling, and the option-name aliases (`-m` / `--mode`, `-h` / `--help` via `context_settings`).
+
+Validation that Click's decorators cannot express - `--classes` only with `--mode random`, the per-mode `--limit` minimum - lives in the body of `main()` and raises `click.UsageError`. The error format matches Click's own usage errors so the user cannot tell whether a given check came from the decorator or from the body.
 
 ### Cross-platform clipboard
 
@@ -338,6 +418,6 @@ async def test_something(tiny_pool: list[str], real_words: set[str]) -> None:
 - `uv` for all Python package management; never call `pip` directly.
 - Real service calls, not mocks, for tests that exercise dictionary data. Monkeypatching `secrets.choice` / `secrets.randbelow` is fine for deterministic branch coverage in `test_phrases.py`.
 - No silent failures - raise with a useful message or `notify(severity="error")` in the UI.
-- Keep modules focused. `generator.py` and `randomgen.py` are the two generation hot paths; don't let UI concerns leak into either. `ui.py` is allowed to import from both, but the dependency arrow never points the other way. `randomgen.py` is also independent of `generator.py` (and vice versa) - they are siblings, not a hierarchy.
+- Keep modules focused. `generator.py` and `randomgen.py` are the two generation hot paths; don't let UI or CLI concerns leak into either. `batch.py` is the orchestration helper that dispatches between them; it imports both but neither imports it. `cli.py` and `ui.py` both import from `batch.py`, so the dispatch lives in one place. The dependency arrow points: generators → batch → cli/ui (and ui imports batch directly to avoid round-tripping through cli).
 - Update `README.md` (human-facing) whenever the hotkey set, CLI signature, or public API changes. `AGENTS.md` (this file) tracks the internals.
 - Commits follow Conventional Commits with a leading gitmoji (see the repo's commit history for examples).

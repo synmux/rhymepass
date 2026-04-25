@@ -436,6 +436,48 @@ class TestPassphraseAppCharset:
             for key in ("[1]", "[2]", "[3]", "[4]", "[5]"):
                 assert key in text
 
+    async def test_card_min_width_fits_all_chips_on_narrow_screen(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """All five chips remain visible when the screen is barely wide enough.
+
+        Regression guard for the truncation bug: if the OptionList
+        rows are narrower than the charset bar, the card's ``width:
+        auto`` would otherwise size to the rows and clip the bar's
+        right edge. The random-mode ``min-width`` rule prevents that.
+
+        The assertion compares the card's resolved *outer* width (the
+        rendered widget including border and padding) against the
+        chip-text width plus chrome. If the min-width rule is
+        removed, the card shrinks to the OptionList width and this
+        test fails.
+        """
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        # 70 cells is wide enough for the random-mode card's
+        # 64-cell min-width but narrower than the rhyme-mode key
+        # hints, simulating the screenshotted case.
+        async with app.run_test(size=(70, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            card = app.query_one("#card")
+            # The card's outer rendered width (border + padding +
+            # content) must respect the min-width rule of 64 cells.
+            # Textual's ``size`` property reports the content area
+            # only, so we use ``outer_size`` for the rule check.
+            assert card.outer_size.width >= 64
+            # The charset bar's rendered text must contain every
+            # chip's full label; if the card were too narrow, the
+            # right-hand chips would be clipped from the rendered
+            # output.
+            bar = app.query_one("#charset-bar")
+            text = str(bar.render())
+            for label in ("Upper", "Lower", "Digits", "Safe", "All"):
+                assert label in text, f"missing chip label {label!r} in {text!r}"
+
     async def test_keys_are_noop_in_rhyme_mode(
         self, tiny_pool: list[str], real_words: set[str]
     ) -> None:
@@ -581,3 +623,154 @@ class TestPassphraseAppCharset:
             # ALL_SYMBOLS (the per-class one-of-each rule).
             for password in app._passphrases:
                 assert any(c in ALL_SYMBOLS for c in password), password
+
+
+class TestPassphraseAppInitialState:
+    """The keyword-only constructor args seed the picker's opening state.
+
+    These tests cover the surface the CLI uses to forward parsed flags
+    into the picker. They do not exercise key bindings - those live in
+    :class:`TestPassphraseAppKeys`, :class:`TestPassphraseAppMode`, and
+    :class:`TestPassphraseAppCharset`.
+    """
+
+    async def test_random_mode_initial_state_applies_css_class(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Opening with ``random_mode=True`` paints the violet accent immediately."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            random_mode=True,
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.random_mode is True
+            assert app.has_class("random-mode")
+            # The charset bar must be visible from first paint, not
+            # only after the user presses ``m``.
+            bar = app.query_one("#charset-bar")
+            assert str(bar.styles.display) == "block"
+
+    async def test_rhyme_mode_initial_state_no_css_class(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """The default rhyme mode opens without the violet accent."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.random_mode is False
+            assert not app.has_class("random-mode")
+            bar = app.query_one("#charset-bar")
+            assert str(bar.styles.display) == "none"
+
+    async def test_spaces_off_initial_state_strips_rows(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """``spaces_on=False`` shows space-stripped rows on first paint."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            spaces_on=False,
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.spaces_on is False
+            option_list = app.query_one("#passphrase-list")
+            for index, phrase in enumerate(_seed_batch()):
+                row_text = str(option_list.get_option_at_index(index).prompt)
+                # The displayed slug is the seeded phrase with all
+                # interior spaces removed.
+                stripped = phrase.replace(" ", "")
+                assert stripped in row_text
+                # Sanity: the *spaced* form of a phrase with spaces
+                # must NOT appear (otherwise the toggle had no effect).
+                if " " in phrase:
+                    assert phrase not in row_text
+
+    async def test_initial_limit_appears_in_status_bar(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """A non-zero opening ``limit`` is reflected in the status text."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            limit=42,
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.limit == 42
+            status = app.query_one("#status-bar")
+            assert "Limit: 42" in str(status.render())
+
+    async def test_initial_charset_constrains_active_classes(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """A custom opening ``charset`` flows into ``_active_classes``."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            random_mode=True,
+            charset=frozenset({"upper", "digits"}),
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.charset == frozenset({"upper", "digits"})
+            # ``_active_classes`` is what the worker passes into
+            # ``generate_random``; it must reflect the constructor's
+            # charset, in display order (upper, digits).
+            assert app._active_classes() == (UPPERCASE, DIGITS)
+
+    async def test_initial_charset_constrains_regenerated_output(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Regenerating with an opening custom charset uses only those classes."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            random_mode=True,
+            charset=frozenset({"upper", "digits"}),
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            for password in app._passphrases:
+                assert all(c in UPPERCASE + DIGITS for c in password), password
+                # Sanity: nothing from the unselected classes leaked in.
+                assert not any(c in LOWERCASE for c in password)
+                assert not any(c in SAFE_SYMBOLS for c in password)
+
+    async def test_status_bar_hides_spaces_when_random_initial(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Random-mode initial state hides ``Spaces:`` from the status bar."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            random_mode=True,
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            status = app.query_one("#status-bar")
+            text = str(status.render())
+            assert "Mode: random" in text
+            assert "Spaces:" not in text

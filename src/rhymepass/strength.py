@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from zxcvbn import zxcvbn as _analyse
 
-_QUALITY_EMOJI: tuple[str, ...] = ("🤮", "🙁", "🫤", "🙂", "🥳")
+_QUALITY_EMOJI: tuple[str, ...] = ("🤮", "☹️", "🫤", "😀", "🥳")
 """Emoji per zxcvbn score, indexed by score (0..4)."""
 
 _STAR: str = "⭐"

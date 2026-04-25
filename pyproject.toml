@@ -25,6 +25,7 @@ classifiers = [
   "Topic :: Utilities",
 ]
 dependencies = [
+  "click>=8.1",
   "english-words>=2.0.2",
   "pronouncing>=0.3.0",
   "textual>=0.80",

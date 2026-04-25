@@ -43,7 +43,7 @@ def test_format_strength_each_score_has_score_plus_one_stars(
 
 @pytest.mark.parametrize(
     ("score", "expected_emoji"),
-    [(0, "🤮"), (1, "🙁"), (2, "🫤"), (3, "🙂"), (4, "🥳")],
+    [(0, "🤮"), (1, "☹️"), (2, "🫤"), (3, "😀"), (4, "🥳")],
 )
 def test_format_strength_each_score_uses_correct_emoji(
     score: int, expected_emoji: str

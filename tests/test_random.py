@@ -15,6 +15,8 @@ import pytest
 
 from rhymepass.randomgen import (
     ALL_SYMBOLS,
+    CLASS_NAMES,
+    DEFAULT_CHARSET,
     DEFAULT_RANDOM_LEN,
     DIGITS,
     LOWERCASE,
@@ -23,6 +25,7 @@ from rhymepass.randomgen import (
     UNSAFE_SYMBOLS,
     UPPERCASE,
     generate_random,
+    resolve_classes,
 )
 
 _ALPHABET: str = LOWERCASE + UPPERCASE + DIGITS + SAFE_SYMBOLS
@@ -270,3 +273,82 @@ class TestCustomClasses:
         assert len(password) == 2
         assert any(c in UPPERCASE for c in password)
         assert any(c in LOWERCASE for c in password)
+
+
+class TestResolveClasses:
+    """`resolve_classes` maps internal names to character-set strings."""
+
+    def test_each_name_maps_to_expected_constant(self) -> None:
+        assert resolve_classes({"upper"}) == (UPPERCASE,)
+        assert resolve_classes({"lower"}) == (LOWERCASE,)
+        assert resolve_classes({"digits"}) == (DIGITS,)
+        assert resolve_classes({"safe"}) == (SAFE_SYMBOLS,)
+        assert resolve_classes({"all"}) == (ALL_SYMBOLS,)
+
+    def test_default_charset_resolves_to_default_alphabet(self) -> None:
+        # The default charset should produce the same alphabet
+        # `generate_random` uses by default (just in display order).
+        result = resolve_classes(DEFAULT_CHARSET)
+        assert set(result) == {UPPERCASE, LOWERCASE, DIGITS, SAFE_SYMBOLS}
+
+    def test_display_order_is_stable(self) -> None:
+        # Order is upper, lower, digits, then safe/all - independent of
+        # the order names arrive in.
+        for variant in (
+            ["upper", "lower", "digits", "safe"],
+            ["safe", "digits", "lower", "upper"],
+            ["digits", "upper", "safe", "lower"],
+        ):
+            assert resolve_classes(variant) == (
+                UPPERCASE,
+                LOWERCASE,
+                DIGITS,
+                SAFE_SYMBOLS,
+            )
+
+    def test_all_replaces_safe_in_output(self) -> None:
+        # When `all` is enabled the resolved tuple contains ALL_SYMBOLS
+        # in place of SAFE_SYMBOLS - they are not stacked, even if both
+        # names are present in the input. This mirrors the picker's
+        # `_active_classes` behaviour.
+        assert resolve_classes({"all"}) == (ALL_SYMBOLS,)
+        assert resolve_classes({"safe", "all"}) == (ALL_SYMBOLS,)
+        assert resolve_classes({"upper", "safe", "all"}) == (
+            UPPERCASE,
+            ALL_SYMBOLS,
+        )
+
+    def test_accepts_any_iterable(self) -> None:
+        # frozenset, set, list, tuple all work.
+        for container in (
+            frozenset({"upper", "digits"}),
+            {"upper", "digits"},
+            ["upper", "digits"],
+            ("upper", "digits"),
+        ):
+            assert resolve_classes(container) == (UPPERCASE, DIGITS)
+
+    def test_empty_input_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one class name"):
+            resolve_classes(set())
+        with pytest.raises(ValueError, match="at least one class name"):
+            resolve_classes([])
+        with pytest.raises(ValueError, match="at least one class name"):
+            resolve_classes(())
+
+    def test_unknown_name_raises_with_listing(self) -> None:
+        with pytest.raises(ValueError, match="unknown class name"):
+            resolve_classes({"upper", "wat"})
+        # Error must name the offender so the user can fix it.
+        with pytest.raises(ValueError, match="wat"):
+            resolve_classes({"wat"})
+        # Error must mention the valid choices for discoverability.
+        with pytest.raises(ValueError, match="upper"):
+            resolve_classes({"nope"})
+
+    def test_class_names_constant_matches_resolve(self) -> None:
+        # Every valid name in `CLASS_NAMES` resolves without error.
+        # Using the singleton form keeps each call producing a single-
+        # element tuple so we can compare across the set.
+        for name in CLASS_NAMES:
+            assert len(resolve_classes({name})) == 1

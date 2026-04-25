@@ -61,9 +61,12 @@ defined in :mod:`rhymepass.cli`.
 from __future__ import annotations
 
 from rhymepass.anchors import build_anchor_pool, load_real_words
+from rhymepass.batch import generate_batch
 from rhymepass.generator import generate
 from rhymepass.randomgen import (
     ALL_SYMBOLS,
+    CLASS_NAMES,
+    DEFAULT_CHARSET,
     DEFAULT_RANDOM_LEN,
     DIGITS,
     LOWERCASE,
@@ -72,6 +75,7 @@ from rhymepass.randomgen import (
     UNSAFE_SYMBOLS,
     UPPERCASE,
     generate_random,
+    resolve_classes,
 )
 from rhymepass.strength import format_strength, score_passphrase
 
@@ -79,6 +83,8 @@ __version__ = "0.0.0.dev1"
 
 __all__ = [
     "ALL_SYMBOLS",
+    "CLASS_NAMES",
+    "DEFAULT_CHARSET",
     "DEFAULT_RANDOM_LEN",
     "DIGITS",
     "LOWERCASE",
@@ -90,7 +96,9 @@ __all__ = [
     "build_anchor_pool",
     "format_strength",
     "generate",
+    "generate_batch",
     "generate_random",
     "load_real_words",
+    "resolve_classes",
     "score_passphrase",
 ]

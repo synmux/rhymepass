@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import secrets
 import string
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 LOWERCASE: str = string.ascii_lowercase
 """ASCII lowercase letters (``a..z``); 26 characters."""
@@ -114,6 +114,21 @@ are toggled on.
 _DEFAULT_CLASSES: tuple[str, ...] = (LOWERCASE, UPPERCASE, DIGITS, SAFE_SYMBOLS)
 """Default character classes used when ``classes`` is omitted."""
 
+CLASS_NAMES: tuple[str, ...] = ("upper", "lower", "digits", "safe", "all")
+"""Valid internal names accepted by :func:`resolve_classes`.
+
+Listed in display order: rendering helpers, ``--help`` output, and the
+picker's charset bar all iterate this tuple to keep their order in
+sync."""
+
+DEFAULT_CHARSET: frozenset[str] = frozenset({"upper", "lower", "digits", "safe"})
+"""Default random-mode class set: every default class except ``"all"``.
+
+Shared by the CLI (as the default for ``--classes``) and by the
+interactive picker (as the initial value of
+:attr:`rhymepass.ui.PassphraseApp.charset`) so the two surfaces never
+disagree about what "default" means."""
+
 
 def generate_random(
     length: int = DEFAULT_RANDOM_LEN,
@@ -179,3 +194,55 @@ def generate_random(
     chars.extend(secrets.choice(alphabet) for _ in range(length - len(classes)))
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)
+
+
+def resolve_classes(names: Iterable[str]) -> tuple[str, ...]:
+    """Map internal class names to their character-set strings.
+
+    The mapping mirrors the picker's resolved charset:
+
+    * ``"upper"`` -> :data:`UPPERCASE`
+    * ``"lower"`` -> :data:`LOWERCASE`
+    * ``"digits"`` -> :data:`DIGITS`
+    * ``"safe"`` -> :data:`SAFE_SYMBOLS`
+    * ``"all"`` -> :data:`ALL_SYMBOLS` (replaces ``"safe"`` in the
+      output because :data:`ALL_SYMBOLS` already contains the safe
+      baseline; including both would duplicate every safe symbol).
+
+    The returned tuple is always in display order
+    (``UPPERCASE``, ``LOWERCASE``, ``DIGITS``, then either
+    ``ALL_SYMBOLS`` or ``SAFE_SYMBOLS``) regardless of the order
+    ``names`` arrives in.
+
+    Args:
+        names: Iterable of internal class names. Members must come
+            from :data:`CLASS_NAMES`.
+
+    Returns:
+        Tuple of class strings suitable for passing to
+        :func:`generate_random` as the ``classes`` argument.
+
+    Raises:
+        ValueError: If ``names`` is empty or contains an unknown name.
+    """
+    name_set = frozenset(names)
+    if not name_set:
+        raise ValueError("at least one class name is required")
+    invalid = name_set - frozenset(CLASS_NAMES)
+    if invalid:
+        raise ValueError(
+            f"unknown class name(s): {sorted(invalid)}. "
+            f"Valid choices: {', '.join(CLASS_NAMES)}."
+        )
+    parts: list[str] = []
+    if "upper" in name_set:
+        parts.append(UPPERCASE)
+    if "lower" in name_set:
+        parts.append(LOWERCASE)
+    if "digits" in name_set:
+        parts.append(DIGITS)
+    if "all" in name_set:
+        parts.append(ALL_SYMBOLS)
+    elif "safe" in name_set:
+        parts.append(SAFE_SYMBOLS)
+    return tuple(parts)
