@@ -322,6 +322,87 @@ class TestStrengthIndicator:
             assert emoji not in result.output
 
 
+# Weak-strength warning -------------------------------------------------------
+
+
+class TestWeakStrengthWarning:
+    """Warning is written to stderr when a character limit yields weak passphrases.
+
+    In rhyme mode with ``--limit`` set, the generator narrows phonetic and
+    lexical choices to squeeze each couplet under the cap; this can push
+    ``zxcvbn`` scores below the five-star threshold. The CLI warns the user
+    to consider switching to ``--mode random``, where the limit is the
+    *exact* output length and every character contributes uniformly to
+    entropy.
+
+    ``score_passphrase`` is patched at the ``rhymepass.cli`` import site so
+    the tests control the score without depending on real ``zxcvbn`` output.
+    In the CliRunner environment ``sys.stderr.isatty()`` is ``False``, so the
+    per-line strength indicator is suppressed, but the weak-score check still
+    runs whenever ``mode != "random" and limit > 0``.
+    """
+
+    def test_warning_in_stderr_when_limit_set_and_scores_weak(
+        self,
+        runner: CliRunner,
+        patched_loaders: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Warning appears on stderr when limit > 0 and any phrase scores ≤ 3."""
+        monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 2)
+        result = runner.invoke(main, ["--limit", "30", "2"])
+        assert result.exit_code == 0
+        stderr = result.stderr if hasattr(result, "stderr") else result.output
+        assert (
+            "4 stars" in stderr
+        ), f"Expected weak-score warning in stderr, got: {stderr!r}"
+        assert "random" in stderr
+
+    def test_no_warning_when_limit_zero(
+        self,
+        runner: CliRunner,
+        patched_loaders: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No warning is emitted when no character limit is active."""
+        # Even with an artificially weak score, the warning must not fire
+        # because limit=0 means the generator is unconstrained.
+        monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 2)
+        result = runner.invoke(main, ["2"])
+        assert result.exit_code == 0
+        stderr = result.stderr if hasattr(result, "stderr") else ""
+        assert (
+            "4 stars" not in stderr
+        ), f"Unexpected warning when limit is 0: {stderr!r}"
+
+    def test_no_warning_in_random_mode(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No warning in random mode even when limit is set and scores are weak."""
+        monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 2)
+        result = runner.invoke(main, ["--mode", "random", "--limit", "8", "2"])
+        assert result.exit_code == 0
+        stderr = result.stderr if hasattr(result, "stderr") else ""
+        assert "4 stars" not in stderr, f"Unexpected warning in random mode: {stderr!r}"
+
+    def test_no_warning_when_all_scores_strong(
+        self,
+        runner: CliRunner,
+        patched_loaders: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No warning when all passphrases score 5 stars (score 4)."""
+        monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 4)
+        result = runner.invoke(main, ["--limit", "30", "2"])
+        assert result.exit_code == 0
+        stderr = result.stderr if hasattr(result, "stderr") else ""
+        assert (
+            "4 stars" not in stderr
+        ), f"Unexpected warning with strong scores: {stderr!r}"
+
+
 # --interactive override ------------------------------------------------------
 
 

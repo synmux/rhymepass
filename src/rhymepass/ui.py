@@ -368,6 +368,7 @@ class PassphraseApp(App[str | None]):
         """
         self.set_class(self.random_mode, "random-mode")
         self._refresh_list()
+        self._maybe_warn_weak_strength()
 
     # Rendering helpers ------------------------------------------------
 
@@ -461,6 +462,37 @@ class PassphraseApp(App[str | None]):
     def _refresh_status(self) -> None:
         """Re-render the status bar from current reactive state."""
         self.query_one("#status-bar", Static).update(self._status_text())
+
+    def _maybe_warn_weak_strength(self) -> None:
+        """Warn if any passphrase in the current batch scores 4 stars or below.
+
+        Suppressed in random mode (the suggestion to switch to random mode
+        would be circular) and when no character limit is active (without a
+        limit the generator can always produce phonetically diverse couplets,
+        so the tradeoff described below does not apply).
+
+        In rhyme mode with a non-zero limit, the generator walks
+        progressively shorter output forms to squeeze each passphrase under
+        the cap. The phonetic and lexical choices narrow with each step,
+        which can push ``zxcvbn`` scores below the five-star threshold.
+        Switching to random mode eliminates this tradeoff: the limit becomes
+        an **exact** length rather than an upper bound, so every character
+        position contributes uniformly to entropy instead of being constrained
+        by rhyme and vocabulary.
+
+        The strength index used matches the current display form (i.e. the
+        same index :meth:`_refresh_list` passes to :func:`format_strength`),
+        so the warning reflects the password the user would actually copy.
+        """
+        if self.random_mode or self.limit == 0:
+            return
+        score_idx = 0 if self.spaces_on else 1
+        if any(pair[score_idx] <= 3 for pair in self._scores):
+            self.notify(
+                "Some passphrases scored 4 stars or below under this limit. "
+                "Consider switching to random mode (press m).",
+                severity="warning",
+            )
 
     def _refresh_list(self) -> None:
         """Re-render the option list, preserving the highlight index."""
@@ -741,6 +773,7 @@ class PassphraseApp(App[str | None]):
                 self._scores = scores
                 self._refresh_list()
                 self._refresh_status()
+                self._maybe_warn_weak_strength()
             self._pending_limit = None
         elif event.state is WorkerState.ERROR:
             self.notify(

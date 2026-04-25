@@ -774,3 +774,175 @@ class TestPassphraseAppInitialState:
             text = str(status.render())
             assert "Mode: random" in text
             assert "Spaces:" not in text
+
+
+class TestWeakStrengthWarning:
+    """Warning toast when a character limit produces passphrases ≤ 4 stars.
+
+    The warning is only relevant in rhyme mode with a non-zero character
+    limit: the generator narrows phonetic/lexical choices to fit the cap,
+    which can push ``zxcvbn`` scores below the five-star threshold.
+    Switching to random mode removes the tradeoff because the limit
+    becomes an exact length rather than an upper bound.
+
+    Each test controls ``_scores`` directly (overwriting the values
+    computed by ``__init__``) and replaces ``app.notify`` with a simple
+    capture lambda before ``run_test()`` so we can assert on the
+    notification message and severity without relying on Textual's
+    internal toast machinery.
+    """
+
+    async def test_fires_on_mount_when_limit_set_and_scores_weak(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Warning is emitted on mount when limit > 0 and any score ≤ 3."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            limit=40,
+        )
+        # Force weak scores before on_mount fires so the check sees them.
+        app._scores = [(1, 1), (2, 2), (0, 0)]
+        captured: list[tuple[str, str]] = []
+        app.notify = lambda msg, severity="information", **kw: captured.append(
+            (msg, severity)
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+        weak_warnings = [
+            msg
+            for msg, sev in captured
+            if sev == "warning" and "random mode" in msg.lower()
+        ]
+        assert (
+            weak_warnings
+        ), "Expected a 'random mode' warning notification, got: " + repr(captured)
+
+    async def test_no_warning_when_limit_zero(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """No warning is emitted when limit == 0, even if scores are weak."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            # limit=0 is the default - no character cap
+        )
+        app._scores = [(1, 1), (2, 2), (0, 0)]
+        captured: list[tuple[str, str]] = []
+        app.notify = lambda msg, severity="information", **kw: captured.append(
+            (msg, severity)
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+        weak_warnings = [
+            msg
+            for msg, sev in captured
+            if sev == "warning" and "random mode" in msg.lower()
+        ]
+        assert not weak_warnings, "Unexpected warning when limit is 0: " + repr(
+            weak_warnings
+        )
+
+    async def test_no_warning_in_random_mode(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """No warning in random mode even when limit > 0 and scores are weak."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            limit=40,
+            random_mode=True,
+        )
+        app._scores = [(1, 1), (2, 2), (0, 0)]
+        captured: list[tuple[str, str]] = []
+        app.notify = lambda msg, severity="information", **kw: captured.append(
+            (msg, severity)
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+        weak_warnings = [
+            msg
+            for msg, sev in captured
+            if sev == "warning" and "random mode" in msg.lower()
+        ]
+        assert not weak_warnings, "Unexpected warning in random mode: " + repr(
+            weak_warnings
+        )
+
+    async def test_no_warning_when_all_scores_strong(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """No warning when every passphrase scores 5 stars (score 4)."""
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            limit=40,
+        )
+        app._scores = [(4, 4), (4, 4), (4, 4)]
+        captured: list[tuple[str, str]] = []
+        app.notify = lambda msg, severity="information", **kw: captured.append(
+            (msg, severity)
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+        weak_warnings = [
+            msg
+            for msg, sev in captured
+            if sev == "warning" and "random mode" in msg.lower()
+        ]
+        assert (
+            not weak_warnings
+        ), "Unexpected warning when all scores are strong: " + repr(weak_warnings)
+
+    async def test_fires_after_successful_regeneration_with_weak_scores(
+        self,
+        tiny_pool: list[str],
+        real_words: set[str],
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """Warning is emitted after a successful regeneration produces weak scores.
+
+        ``_score_both_forms`` is patched at the module level so every
+        phrase the worker generates receives a forced weak score (1, 1).
+        The test then presses ``r``, waits for the worker, and checks that
+        at least one 'random mode' warning notification was queued.
+        """
+        import pytest  # local import keeps the module-level namespace clean
+
+        monkeypatch.setattr("rhymepass.ui._score_both_forms", lambda _: (1, 1))
+        app = PassphraseApp(
+            count=3,
+            pool=tiny_pool,
+            real_words=real_words,
+            seeded=_seed_batch(),
+            limit=40,
+        )
+        captured: list[tuple[str, str]] = []
+        app.notify = lambda msg, severity="information", **kw: captured.append(
+            (msg, severity)
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            # Clear mount-time notifications so we can isolate the regen warning.
+            captured.clear()
+            await pilot.press("r")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        weak_warnings = [
+            msg
+            for msg, sev in captured
+            if sev == "warning" and "random mode" in msg.lower()
+        ]
+        assert (
+            weak_warnings
+        ), "Expected a warning after regeneration with weak scores, got: " + repr(
+            captured
+        )

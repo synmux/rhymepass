@@ -237,11 +237,30 @@ def main(
         # interleaved. ``click.echo`` flushes per call, so stdout and
         # stderr stay ordered when a terminal merges them.
         show_strength = sys.stderr.isatty()
+        # When a character limit is active in rhyme mode the generator
+        # walks progressively shorter output forms to fit each phrase
+        # under the cap, which can push zxcvbn scores below the
+        # five-star threshold. We score every phrase in that case
+        # (even when the strength indicator itself is suppressed) so
+        # we can warn the user to consider switching to random mode.
+        check_weak = mode != "random" and limit > 0
+        any_weak = False
         for phrase in seeded:
             display = phrase if mode == "random" or spaces else phrase.replace(" ", "")
             click.echo(display)
-            if show_strength:
-                click.echo(format_strength(score_passphrase(display)), err=True)
+            if show_strength or check_weak:
+                s = score_passphrase(display)
+                if show_strength:
+                    click.echo(format_strength(s), err=True)
+                if check_weak and s <= 3:
+                    any_weak = True
+        if any_weak:
+            click.echo(
+                "Warning: one or more passphrases scored 4 stars or below "
+                "with the current character limit. Consider using "
+                "--mode random for stronger passwords.",
+                err=True,
+            )
         return
 
     # Lazy import: keeps Textual out of the import graph for the

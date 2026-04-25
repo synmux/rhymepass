@@ -113,11 +113,15 @@ In random mode the limit is interpreted as the **exact** length (with `0` meanin
 
 The minimum length the modal accepts in random mode is the number of currently-enabled classes (since each one contributes a guaranteed character): one class lets you go as low as 1, all five enabled bumps the minimum to 5.
 
+**Weak-strength warning.** When a character limit is active in rhyme mode, the generator walks progressively shorter output forms to fit each couplet under the cap, narrowing the phonetic and lexical choices at each step. If any passphrase in the current batch scores 4 stars or below (`zxcvbn` score ≤ 3), the picker shows a warning toast suggesting you switch to random mode (press `m`). In random mode the limit is the _exact_ output length, so every character position contributes uniformly to entropy and the tradeoff disappears.
+
 ### In a pipe
 
 When `stdout` is not a TTY, `rhymepass` skips the picker and just prints one passphrase per line. The interactive Textual dependency is never imported on this path, so pipe invocations start fast and stay light.
 
-The strength indicator is written to **stderr**, one line per passphrase, while passphrases themselves go to stdout. Pipes and redirections that consume stdout therefore receive only the password, while an attached terminal still shows the indicators interleaved. If `stderr` is also redirected away from a TTY (for example `rhymepass 5 > file 2>/dev/null`), scoring is skipped entirely - no wasted `zxcvbn` work for output nobody will see.
+The strength indicator is written to **stderr**, one line per passphrase, while passphrases themselves go to stdout. Pipes and redirections that consume stdout therefore receive only the password, while an attached terminal still sees the indicators interleaved. If `stderr` is also redirected away from a TTY (for example `rhymepass 5 > file 2>/dev/null`), scoring is skipped entirely - no wasted `zxcvbn` work for output nobody will see.
+
+When `--limit` is active in rhyme mode and any passphrase in the batch scores 4 stars or below, an additional warning line is written to **stderr** (unconditionally - not gated on whether stderr is a TTY) suggesting `--mode random` as an alternative. stdout is unaffected; the passphrase lines remain clean.
 
 ```sh
 rhymepass 3 | cat

@@ -291,24 +291,62 @@ The picker is shown when `sys.stdout.isatty()` is true (Textual needs a real ter
 
 ### Pipe-mode stdout/stderr split for the strength indicator
 
-In the pipe branch, passphrases go to **stdout** and the strength indicator goes to **stderr**, one line each per passphrase. The new code uses `click.echo` (which flushes per call) instead of bare `print(..., flush=True)`:
+In the pipe branch, passphrases go to **stdout** and the strength indicator goes to **stderr**, one line each per passphrase. The code uses `click.echo` (which flushes per call) instead of bare `print(..., flush=True)`:
 
 ```python
 if not use_picker:
     show_strength = sys.stderr.isatty()
+    check_weak = mode != "random" and limit > 0
+    any_weak = False
     for phrase in seeded:
         display = (
             phrase if mode == "random" or spaces else phrase.replace(" ", "")
         )
         click.echo(display)
-        if show_strength:
-            click.echo(format_strength(score_passphrase(display)), err=True)
+        if show_strength or check_weak:
+            s = score_passphrase(display)
+            if show_strength:
+                click.echo(format_strength(s), err=True)
+            if check_weak and s <= 3:
+                any_weak = True
+    if any_weak:
+        click.echo(
+            "Warning: one or more passphrases scored 4 stars or below "
+            "with the current character limit. Consider using "
+            "--mode random for stronger passwords.",
+            err=True,
+        )
     return
 ```
 
-This keeps `rhymepass 5 | xargs ...` and `rhymepass 5 > file` clean (consumers receive only the password) while still showing the indicator on an attached terminal. The `sys.stderr.isatty()` gate skips scoring entirely when stderr is also redirected (`> file 2>/dev/null`) - no point spending zxcvbn time on output nobody will see.
+This keeps `rhymepass 5 | xargs ...` and `rhymepass 5 > file` clean (consumers receive only the password) while still showing the indicator on an attached terminal. The `sys.stderr.isatty()` gate skips scoring for the _indicator_ when stderr is redirected (`> file 2>/dev/null`), but the weak-score check (`check_weak`) is not gated on `isatty()`: the warning is useful for scripts and CI pipelines, not just interactive sessions.
 
 `click.echo` flushes its target stream after each call, so stdout and stderr stay correctly ordered when a terminal merges them. Don't replace it with bare `print` without restoring `flush=True`.
+
+### Weak-strength warning
+
+When the generator is constrained by a non-zero character limit in rhyme mode, it walks progressively shorter output forms to squeeze each couplet under the cap. The phonetic and lexical choices narrow with each step; below about 16 characters the rhyme partner is dropped entirely and output falls back to a single-statement form (`"Abcd / 12"`). This descent can push `zxcvbn` scores below the five-star threshold. Switching to random mode removes the tradeoff because the limit becomes an **exact** length rather than an upper bound, and every character position contributes uniformly to entropy.
+
+**Interactive picker (`PassphraseApp._maybe_warn_weak_strength`)**
+
+The method fires after every batch render in rhyme mode when `limit > 0`. It inspects `self._scores` using the current display-form index (matching `_refresh_list`), so the check reflects the password the user would actually copy. Suppression conditions:
+
+| Condition                  | Suppressed? | Reason                                                            |
+| -------------------------- | ----------- | ----------------------------------------------------------------- |
+| `self.random_mode is True` | Yes         | Suggestion to switch to random would be circular.                 |
+| `self.limit == 0`          | Yes         | Unconstrained generation does not trigger the phonetic narrowing. |
+| All `pair[idx] > 3`        | Yes         | Every passphrase already scores 5 stars; no warning needed.       |
+
+Call sites:
+
+1. `on_mount()` — covers the seeded batch that was generated before the picker opened.
+2. `on_worker_state_changed()` (SUCCESS path, inside the `isinstance` guard) — covers every subsequent regeneration.
+
+**Pipe mode (`cli.main`)**
+
+`check_weak = mode != "random" and limit > 0` gates the per-phrase scoring. `any_weak` is set to `True` on the first phrase whose score is ≤ 3. The final `if any_weak:` block writes the warning to stderr **unconditionally** (not gated on `sys.stderr.isatty()`). stdout is unaffected; passphrases remain clean for downstream consumers.
+
+The `score_passphrase` call is shared between the strength-indicator path (`show_strength`) and the weak-check path (`check_weak`); computing the score once and branching avoids a redundant `zxcvbn` call when both flags are true.
 
 ### CLI flags become the picker's opening state, not a lock
 
