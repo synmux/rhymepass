@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
-import subprocess
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from typing import Callable
 
@@ -153,4 +153,6 @@ def copy_to_clipboard(text: str) -> None:
     backend = _select_backend(backends)
     if backend is None:
         raise RuntimeError(_missing_backend_message(system, backends))
-    subprocess.run(list(backend.argv), input=backend.encode(text), check=True)
+    subprocess.run(
+        list(backend.argv), input=backend.encode(text), check=True
+    )  # nosec B603

@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Trunk check
+        uses: trunk-io/trunk-action@v1
+
       - name: Install mise
         uses: jdx/mise-action@v2
         with:

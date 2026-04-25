@@ -9,6 +9,8 @@ rhyme candidates.
 
 from __future__ import annotations
 
+import pytest
+
 from rhymepass.randomgen import (
     ALL_SYMBOLS,
     DIGITS,
@@ -915,7 +917,6 @@ class TestWeakStrengthWarning:
         The test then presses ``r``, waits for the worker, and checks that
         at least one 'random mode' warning notification was queued.
         """
-        import pytest  # local import keeps the module-level namespace clean
 
         monkeypatch.setattr("rhymepass.ui._score_both_forms", lambda _: (1, 1))
         app = PassphraseApp(
