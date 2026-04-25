@@ -32,11 +32,33 @@ from textual.worker import Worker, WorkerState
 
 from rhymepass.generator import MIN_SINGLE_LEN, generate
 from rhymepass.randomgen import (
+    ALL_SYMBOLS,
     DEFAULT_RANDOM_LEN,
-    MIN_RANDOM_LEN,
+    DIGITS,
+    LOWERCASE,
+    SAFE_SYMBOLS,
+    UPPERCASE,
     generate_random,
 )
 from rhymepass.strength import format_strength, score_passphrase
+
+_CLASS_KEY_ORDER: tuple[tuple[str, str, str], ...] = (
+    ("1", "Upper", "upper"),
+    ("2", "Lower", "lower"),
+    ("3", "Digits", "digits"),
+    ("4", "Safe", "safe"),
+    ("5", "All", "all"),
+)
+"""Display order for the charset bar: ``(key, label, internal_name)``.
+
+The internal name is the value stored in :attr:`PassphraseApp.charset`;
+the key is the binding (and the visible chip in the bar) and the label
+is the human-readable column. Single source of truth so the bar text,
+the bindings, and the actions cannot drift out of sync.
+"""
+
+_DEFAULT_CHARSET: frozenset[str] = frozenset({"upper", "lower", "digits", "safe"})
+"""Initial random-mode charset: every default class except "all"."""
 
 
 def _score_both_forms(passphrase: str) -> tuple[int, int]:
@@ -160,6 +182,10 @@ class PassphraseApp(App[str | None]):
     * :attr:`random_mode` - whether the picker generates fully random
       passwords (True) or rhyming passphrases (False, the default).
       Toggled with ``m``; flips the accent colour to violet.
+    * :attr:`charset` - frozen set of internal class names enabled
+      for random-mode generation. Default
+      ``{"upper", "lower", "digits", "safe"}``; the user toggles
+      members with ``1``..``5``. Ignored in rhyme mode.
 
     Regeneration runs in a background thread worker so the UI stays
     responsive. ``exclusive=True`` means a fresh regenerate cancels
@@ -204,6 +230,20 @@ class PassphraseApp(App[str | None]):
         text-align: center;
     }
 
+    /* The charset bar is hidden in rhyme mode (it has nothing to
+       do there) and revealed in random mode by the `random-mode`
+       class on the App. Using `display: none` removes it from the
+       layout, so the card auto-shrinks back to its rhyme-mode size
+       when the user flips back. */
+    #charset-bar {
+        display: none;
+        width: 100%;
+        height: 1;
+        color: $text;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
     /* Random-mode accent swap. Adding the `random-mode` class to the
        App swaps the rhyming-blue accents for Tailwind violet-500.
        The literal hex avoids depending on Textual's theme-scoped
@@ -214,6 +254,10 @@ class PassphraseApp(App[str | None]):
     PassphraseApp.random-mode #status-bar {
         background: #8b5cf6 30%;
     }
+    PassphraseApp.random-mode #charset-bar {
+        display: block;
+        background: #8b5cf6 20%;
+    }
     """
 
     BINDINGS = [
@@ -221,6 +265,12 @@ class PassphraseApp(App[str | None]):
         Binding("l", "set_limit", "Set limit"),
         Binding("m", "toggle_mode", "Mode"),
         Binding("r", "regenerate", "Regenerate"),
+        # Charset toggles (random mode only; silent no-op in rhyme mode).
+        Binding("1", "toggle_class_upper", "Upper", show=False),
+        Binding("2", "toggle_class_lower", "Lower", show=False),
+        Binding("3", "toggle_class_digits", "Digits", show=False),
+        Binding("4", "toggle_class_safe", "Safe", show=False),
+        Binding("5", "toggle_class_all", "All", show=False),
         Binding("escape", "cancel", "Cancel"),
         Binding("q", "cancel", "Cancel", show=False),
     ]
@@ -228,6 +278,7 @@ class PassphraseApp(App[str | None]):
     spaces_on: reactive[bool] = reactive(True)
     limit: reactive[int] = reactive(0)
     random_mode: reactive[bool] = reactive(False)
+    charset: reactive[frozenset[str]] = reactive(_DEFAULT_CHARSET)
 
     def __init__(
         self,
@@ -256,9 +307,15 @@ class PassphraseApp(App[str | None]):
         self._pending_limit: int | None = None
 
     def compose(self) -> ComposeResult:
-        """Build the main-screen layout as a centred card."""
+        """Build the main-screen layout as a centred card.
+
+        The charset bar sits between the status bar and the option
+        list. CSS hides it in rhyme mode (``display: none``) so it
+        does not occupy any space until the user enters random mode.
+        """
         yield Container(
             Static(self._status_text(), id="status-bar"),
+            Static(self._charset_text(), id="charset-bar"),
             OptionList(id="passphrase-list"),
             Static(self._key_hints_text(), id="key-hints"),
             id="card",
@@ -293,11 +350,12 @@ class PassphraseApp(App[str | None]):
 
         The ``x`` toggle is hidden in random mode (no spaces to
         toggle); the binding stays registered so pressing ``x`` is a
-        silent no-op rather than an error.
+        silent no-op rather than an error. The ``1-5`` charset
+        toggles are hidden in rhyme mode for the same reason.
         """
         if self.random_mode:
             return (
-                "l: set limit  ·  m: mode  ·  r: regenerate"
+                "1-5: charset  ·  l: set limit  ·  m: mode  ·  r: regenerate"
                 "  ·  enter: copy  ·  esc: cancel"
             )
         return (
@@ -308,6 +366,50 @@ class PassphraseApp(App[str | None]):
     def _refresh_key_hints(self) -> None:
         """Re-render the footer hint from the current mode."""
         self.query_one("#key-hints", Static).update(self._key_hints_text())
+
+    def _charset_text(self) -> str:
+        """Return the random-mode charset bar text.
+
+        Renders one chip per class showing its key, label, and
+        on/off state. Bold + tick (``✓``) for enabled,
+        muted + dot (``·``) for disabled. The chip order is fixed
+        by :data:`_CLASS_KEY_ORDER`.
+        """
+        chips: list[str] = []
+        for key, label, name in _CLASS_KEY_ORDER:
+            if name in self.charset:
+                chips.append(f"[b][{key}] {label} ✓[/b]")
+            else:
+                chips.append(f"[dim][{key}] {label} ·[/dim]")
+        return " Charset:  " + "  ".join(chips)
+
+    def _refresh_charset_bar(self) -> None:
+        """Re-render the charset bar from the current charset reactive."""
+        self.query_one("#charset-bar", Static).update(self._charset_text())
+
+    def _active_classes(self) -> tuple[str, ...]:
+        """Return the active character-class strings for ``generate_random``.
+
+        Maps the internal class names in :attr:`charset` to the
+        corresponding string constants in :mod:`rhymepass.randomgen`.
+        ``"all"`` and ``"safe"`` are treated as a unit: when ``"all"``
+        is enabled, :data:`ALL_SYMBOLS` (which already contains the
+        safe set) is appended in place of :data:`SAFE_SYMBOLS`. The
+        ``_toggle_class`` constraints make ``"all"`` without
+        ``"safe"`` impossible, so we never lose the safe baseline.
+        """
+        parts: list[str] = []
+        if "upper" in self.charset:
+            parts.append(UPPERCASE)
+        if "lower" in self.charset:
+            parts.append(LOWERCASE)
+        if "digits" in self.charset:
+            parts.append(DIGITS)
+        if "all" in self.charset:
+            parts.append(ALL_SYMBOLS)
+        elif "safe" in self.charset:
+            parts.append(SAFE_SYMBOLS)
+        return tuple(parts)
 
     def _display_form(self, spaced: str) -> str:
         """Return the passphrase in its current display form.
@@ -364,8 +466,11 @@ class PassphraseApp(App[str | None]):
 
         The minimum the modal will accept depends on mode: rhyming
         mode needs at least :data:`MIN_SINGLE_LEN` (9) chars to fit
-        ``"Abcd / 12"``, but random mode can produce a useful 4-char
-        password.
+        ``"Abcd / 12"``. Random mode's true minimum is the number of
+        currently-enabled classes (one of each is guaranteed in every
+        output), so the modal is told to enforce that count - which
+        ranges from ``1`` (a single class enabled) up to ``5`` (every
+        class enabled).
         """
 
         def handle(new_limit: int | None) -> None:
@@ -373,7 +478,10 @@ class PassphraseApp(App[str | None]):
                 return
             self._regenerate_under(new_limit)
 
-        minimum = MIN_RANDOM_LEN if self.random_mode else MIN_SINGLE_LEN
+        if self.random_mode:
+            minimum = max(1, len(self._active_classes()))
+        else:
+            minimum = MIN_SINGLE_LEN
         self.push_screen(LimitModal(min_value=minimum), handle)
 
     def action_regenerate(self) -> None:
@@ -387,10 +495,11 @@ class PassphraseApp(App[str | None]):
 
         1. The ``random-mode`` CSS class is toggled on the App, which
            swaps the accent colour from blue to violet via the rules
-           defined in :attr:`CSS`.
+           defined in :attr:`CSS`. The same class also reveals the
+           charset bar via the ``display: block`` override.
         2. The status bar and footer hints are re-rendered to reflect
            the new mode (random hides the ``Spaces:`` field and the
-           ``x`` hint).
+           ``x`` hint, and adds the ``1-5: charset`` hint).
         3. A regeneration is kicked off under the current limit so
            the user immediately sees output in the new mode rather
            than rhymes alongside a "Mode: random" label.
@@ -401,6 +510,93 @@ class PassphraseApp(App[str | None]):
         self._refresh_key_hints()
         self._regenerate_under(self.limit)
 
+    # Charset toggles. Each binding is a thin wrapper around
+    # `_toggle_class(name)` so the action name stays valid identifier-
+    # syntax for Textual while the shared logic (constraints,
+    # regeneration trigger) lives in one place.
+
+    def action_toggle_class_upper(self) -> None:
+        """Toggle the uppercase class in the random-mode charset."""
+        self._toggle_class("upper")
+
+    def action_toggle_class_lower(self) -> None:
+        """Toggle the lowercase class in the random-mode charset."""
+        self._toggle_class("lower")
+
+    def action_toggle_class_digits(self) -> None:
+        """Toggle the digits class in the random-mode charset."""
+        self._toggle_class("digits")
+
+    def action_toggle_class_safe(self) -> None:
+        """Toggle the safe-symbols class in the random-mode charset."""
+        self._toggle_class("safe")
+
+    def action_toggle_class_all(self) -> None:
+        """Toggle the all-symbols class in the random-mode charset."""
+        self._toggle_class("all")
+
+    def _toggle_class(self, name: str) -> None:
+        """Flip ``name`` in the charset, apply constraints, regenerate.
+
+        The constraints are **direction-aware** to avoid the rules
+        cancelling each other out when both fire on the same final
+        state:
+
+        1. Enabling ``"all"`` forces ``"safe"`` on. ``ALL_SYMBOLS``
+           contains the safe baseline, so this just keeps the
+           charset bar honest about which classes are conceptually
+           active.
+        2. Disabling ``"safe"`` forces ``"all"`` off. Without the
+           safe baseline, "all symbols" would mean "unsafe only" -
+           which is almost certainly not what the user wants.
+
+        Note that disabling ``"all"`` does not touch ``"safe"`` (the
+        baseline stays as the user left it), and enabling ``"safe"``
+        does not touch ``"all"`` (the user explicitly opted out of
+        unsafe characters and we should not silently re-enable them).
+
+        After constraints, the charset must contain at least one
+        class. The last remaining toggle refuses to disable and emits
+        a warning toast instead.
+
+        In rhyme mode the keys are silent no-ops: the charset is a
+        random-mode concept and changing it there would just confuse.
+        """
+        if not self.random_mode:
+            return
+
+        # Capture the toggle direction *before* mutating, so the
+        # cascade rules below can act on intent rather than final state.
+        turning_on = name not in self.charset
+        new = set(self.charset)
+        if turning_on:
+            new.add(name)
+        else:
+            new.discard(name)
+
+        # Direction-aware cascades.
+        if name == "all" and turning_on:
+            new.add("safe")
+        if name == "safe" and not turning_on:
+            new.discard("all")
+
+        # At-least-one-class guard.
+        if not new:
+            self.notify(
+                "At least one character class must be enabled.",
+                severity="warning",
+            )
+            return
+
+        # No-op guard: if the constrained result equals the current
+        # charset, we would trigger a pointless regeneration.
+        if frozenset(new) == self.charset:
+            return
+
+        self.charset = frozenset(new)
+        self._refresh_charset_bar()
+        self._regenerate_under(self.limit)
+
     def action_cancel(self) -> None:
         """Exit without copying anything."""
         self.exit(None)
@@ -409,24 +605,28 @@ class PassphraseApp(App[str | None]):
 
     @work(thread=True, exclusive=True, name="regenerate")
     def _regenerate_worker(
-        self, new_limit: int, random_mode: bool
+        self,
+        new_limit: int,
+        random_mode: bool,
+        classes: tuple[str, ...],
     ) -> tuple[list[str], list[tuple[int, int]]]:
         """Regenerate the passphrase batch on a worker thread.
 
         Dispatches on the mode captured by the caller on the main
         thread: rhyming mode calls
         :func:`rhymepass.generator.generate`, random mode calls
-        :func:`rhymepass.randomgen.generate_random`. Capturing the
-        mode in the call rather than reading
-        :attr:`PassphraseApp.random_mode` here keeps the worker free
-        of any cross-thread reactive reads.
+        :func:`rhymepass.randomgen.generate_random` with the resolved
+        ``classes`` tuple. Capturing both ``random_mode`` and
+        ``classes`` at the call site (rather than reading the
+        reactives here) keeps the worker free of any cross-thread
+        reactive reads.
 
         Returning normally signals success; raising
-        :class:`RuntimeError` (from :func:`generate`) signals failure.
+        :class:`ValueError` (from ``generate_random`` when the limit
+        is below ``len(classes)``) or :class:`RuntimeError` (from
+        ``generate`` when no rhyming output fits) signals failure.
         Both land in :meth:`on_worker_state_changed`, which dispatches
-        the UI update on the main thread. Random-mode generation
-        cannot raise under valid inputs, so the failure path is
-        rhyming-only in practice.
+        the UI update on the main thread.
 
         Scoring happens here, off the UI thread, so the picker stays
         responsive even though zxcvbn analysis takes tens of ms per
@@ -442,6 +642,9 @@ class PassphraseApp(App[str | None]):
             random_mode: ``True`` to call ``generate_random``,
                 ``False`` to call the rhyming generator. Captured
                 snapshot from the main thread at dispatch time.
+            classes: Resolved character-class strings for random
+                mode, produced by :meth:`_active_classes`. Ignored
+                in rhyme mode but always passed for shape stability.
 
         Returns:
             A tuple of ``(passphrases, scores)`` where ``scores`` is a
@@ -450,7 +653,10 @@ class PassphraseApp(App[str | None]):
         """
         if random_mode:
             target_len = new_limit if new_limit > 0 else DEFAULT_RANDOM_LEN
-            phrases = [generate_random(length=target_len) for _ in range(self._count)]
+            phrases = [
+                generate_random(length=target_len, classes=classes)
+                for _ in range(self._count)
+            ]
         else:
             phrases = [
                 generate(self._pool, self._real_words, limit=new_limit)
@@ -462,13 +668,14 @@ class PassphraseApp(App[str | None]):
     def _regenerate_under(self, new_limit: int) -> None:
         """Kick off a background regeneration under ``new_limit``.
 
-        Snapshots :attr:`random_mode` here, on the main thread, and
-        passes it to the worker as an explicit argument. This keeps
-        the worker thread free of reactive reads and means a mode
-        flip mid-generation does not race against an in-flight batch.
+        Snapshots :attr:`random_mode` and the resolved active classes
+        here, on the main thread, and passes them to the worker as
+        explicit arguments. This keeps the worker thread free of
+        reactive reads and means a mode (or charset) flip mid-
+        generation does not race against an in-flight batch.
         """
         self._pending_limit = new_limit
-        self._regenerate_worker(new_limit, self.random_mode)
+        self._regenerate_worker(new_limit, self.random_mode, self._active_classes())
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Swap in the regenerated batch, or roll back on failure."""

@@ -3,20 +3,29 @@
 This is the peer of :mod:`rhymepass.generator` for the picker's
 *random mode*. Where :func:`rhymepass.generator.generate` builds a
 rhyming, memorable couplet, :func:`generate_random` draws a fixed-length
-string uniformly at random from a curated character set.
+string uniformly at random from a caller-chosen set of character
+classes.
 
-The character set is the union of:
+The five available classes are:
 
-* :data:`LOWERCASE` - ASCII a..z
-* :data:`UPPERCASE` - ASCII A..Z
-* :data:`DIGITS` - 0..9
-* :data:`SAFE_SYMBOLS` - punctuation chosen to avoid shell, URL, regex
-  and SQL interpretation
+* :data:`LOWERCASE` - ASCII a..z (26 chars)
+* :data:`UPPERCASE` - ASCII A..Z (26 chars)
+* :data:`DIGITS` - 0..9 (10 chars)
+* :data:`SAFE_SYMBOLS` - punctuation chosen to avoid shell, URL,
+  regex and SQL interpretation (7 chars)
+* :data:`ALL_SYMBOLS` - the union of :data:`SAFE_SYMBOLS` and
+  :data:`UNSAFE_SYMBOLS` (every ASCII punctuation char plus ``§``)
 
-Every output is guaranteed to contain at least one character from
-each of the four classes, and the final character order is shuffled
-with :class:`secrets.SystemRandom` so the "one-of-each" guarantee
-does not leak positional information.
+The picker's interactive charset toggles let the user pick any
+non-empty subset of the first four; ``ALL_SYMBOLS`` is selected
+indirectly by enabling the "all symbols" toggle, which uses
+:data:`ALL_SYMBOLS` in place of :data:`SAFE_SYMBOLS`.
+
+For any chosen subset, :func:`generate_random` guarantees at least
+one character from each class; the remaining slots are uniform draws
+from the union of the chosen classes; the final character order is
+shuffled with :class:`secrets.SystemRandom` so the "one-of-each"
+guarantee does not leak positional information.
 
 The module deliberately uses :mod:`secrets` (CSPRNG) for every draw -
 never :mod:`random` - because the output is a credential.
@@ -26,6 +35,7 @@ from __future__ import annotations
 
 import secrets
 import string
+from collections.abc import Sequence
 
 LOWERCASE: str = string.ascii_lowercase
 """ASCII lowercase letters (``a..z``); 26 characters."""
@@ -59,6 +69,28 @@ Explicitly **excluded** for shell or HTTP reasons:
 character.
 """
 
+UNSAFE_SYMBOLS: str = "".join(c for c in string.punctuation if c not in SAFE_SYMBOLS)
+"""ASCII punctuation that has shell, URL, regex or CSV interpretation.
+
+Computed as ``string.punctuation - SAFE_SYMBOLS`` so the two are
+mechanically disjoint - editing :data:`SAFE_SYMBOLS` automatically
+keeps this set correct. The Unicode section sign (``§``) is in
+:data:`SAFE_SYMBOLS` but never in ``string.punctuation``, so it is
+not duplicated here either. Used only when the picker's "all symbols"
+toggle is enabled, in which case :data:`ALL_SYMBOLS` (the union)
+replaces :data:`SAFE_SYMBOLS` in the active class list.
+"""
+
+ALL_SYMBOLS: str = SAFE_SYMBOLS + UNSAFE_SYMBOLS
+"""Every symbol the random generator will use under "all symbols" mode.
+
+This is the set the picker hands to :func:`generate_random` when the
+``[5] All`` charset toggle is on: the safe baseline plus every
+ASCII shell-metacharacter that we deliberately omit by default. By
+construction, ``set(ALL_SYMBOLS) == set(SAFE_SYMBOLS) | set(UNSAFE_SYMBOLS)``
+and there are no duplicates.
+"""
+
 DEFAULT_RANDOM_LEN: int = 24
 """Length used when the picker's limit is ``0`` (\"no limit\").
 
@@ -69,67 +101,81 @@ truncation.
 """
 
 MIN_RANDOM_LEN: int = 4
-"""Smallest length :func:`generate_random` accepts.
+"""Smallest length :func:`generate_random` accepts under the default classes.
 
-The function guarantees at least one character from each of the four
-classes (lowercase, uppercase, digit, symbol), so a length of 4 is
-the smallest value that can satisfy that guarantee.
+The function guarantees at least one character from each requested
+class, so the true minimum is ``len(classes)``. With the default
+four classes (lowercase, uppercase, digits, safe symbols) that
+becomes 4. The picker uses this constant as the modal's minimum
+value in random mode and bumps it dynamically when extra classes
+are toggled on.
 """
 
-_CHARSET: str = LOWERCASE + UPPERCASE + DIGITS + SAFE_SYMBOLS
-"""Combined alphabet used to fill positions beyond the one-of-each guarantee."""
+_DEFAULT_CLASSES: tuple[str, ...] = (LOWERCASE, UPPERCASE, DIGITS, SAFE_SYMBOLS)
+"""Default character classes used when ``classes`` is omitted."""
 
 
-def generate_random(length: int = DEFAULT_RANDOM_LEN) -> str:
+def generate_random(
+    length: int = DEFAULT_RANDOM_LEN,
+    classes: Sequence[str] | None = None,
+) -> str:
     """Return a random password of exactly ``length`` characters.
 
     Strategy:
 
-    1. Draw one character each from :data:`LOWERCASE`,
-       :data:`UPPERCASE`, :data:`DIGITS` and :data:`SAFE_SYMBOLS` so
-       every output contains the full character-class mix.
-    2. Fill the remaining ``length - 4`` slots with uniform draws
-       from the combined alphabet (:data:`_CHARSET`).
+    1. Draw one character from each entry in ``classes`` so every
+       output contains at least one character from each requested
+       class.
+    2. Fill the remaining ``length - len(classes)`` slots with
+       uniform draws from the combined alphabet (the concatenation
+       of all ``classes``).
     3. Shuffle the resulting list with :class:`secrets.SystemRandom`
-       so the mandatory characters are not always in the first four
-       positions.
+       so the mandatory characters are not always in the first
+       ``len(classes)`` positions.
 
     Every random draw uses :mod:`secrets`, which is the cryptographic
     PRNG the standard library exposes for credential generation.
 
     The per-class guarantee introduces a microscopic bias relative to
-    a strict uniform draw from the alphabet (the four mandatory
-    classes are sampled from smaller pools). For ``length == 4`` this
-    is not a bias at all - the output is a uniform sample from the
-    cartesian product. For longer lengths the deviation is
+    a strict uniform draw from the alphabet (the mandatory class
+    samples come from smaller pools). For ``length == len(classes)``
+    this is not a bias at all - the output is a uniform sample from
+    the cartesian product. For longer lengths the deviation is
     ``O(1/length)`` and is well below the resolution of any
     downstream strength estimator.
 
     Args:
         length: Total number of characters to emit. Must be at least
-            :data:`MIN_RANDOM_LEN` (4).
+            ``len(classes)``.
+        classes: Sequence of non-empty character-class strings to
+            draw from. ``None`` (the default) uses
+            ``(LOWERCASE, UPPERCASE, DIGITS, SAFE_SYMBOLS)``, which
+            matches the picker's default charset and preserves the
+            original public behaviour of this function.
 
     Returns:
-        A string of exactly ``length`` characters drawn from
-        :data:`LOWERCASE`, :data:`UPPERCASE`, :data:`DIGITS` and
-        :data:`SAFE_SYMBOLS`.
+        A string of exactly ``length`` characters drawn from the
+        union of ``classes``.
 
     Raises:
-        ValueError: If ``length < MIN_RANDOM_LEN`` or if
-            :data:`SAFE_SYMBOLS` has been replaced with an empty
-            string at runtime.
+        ValueError: If ``classes`` is empty, contains an empty
+            string, or if ``length < len(classes)``.
     """
-    if length < MIN_RANDOM_LEN:
-        raise ValueError(f"length must be at least {MIN_RANDOM_LEN}; got {length!r}")
-    if not SAFE_SYMBOLS:
-        raise ValueError("SAFE_SYMBOLS is empty; cannot guarantee a symbol")
+    if classes is None:
+        classes = _DEFAULT_CLASSES
+    if not classes:
+        raise ValueError("at least one character class is required")
+    for cls in classes:
+        if not cls:
+            raise ValueError("character classes must be non-empty strings")
+    if length < len(classes):
+        raise ValueError(
+            f"length must be at least {len(classes)} to fit one of each "
+            f"of the {len(classes)} requested classes; got {length!r}"
+        )
 
-    chars: list[str] = [
-        secrets.choice(LOWERCASE),
-        secrets.choice(UPPERCASE),
-        secrets.choice(DIGITS),
-        secrets.choice(SAFE_SYMBOLS),
-    ]
-    chars.extend(secrets.choice(_CHARSET) for _ in range(length - MIN_RANDOM_LEN))
+    chars: list[str] = [secrets.choice(cls) for cls in classes]
+    alphabet: str = "".join(classes)
+    chars.extend(secrets.choice(alphabet) for _ in range(length - len(classes)))
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)

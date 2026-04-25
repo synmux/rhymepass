@@ -63,9 +63,14 @@ from __future__ import annotations
 from rhymepass.anchors import build_anchor_pool, load_real_words
 from rhymepass.generator import generate
 from rhymepass.randomgen import (
+    ALL_SYMBOLS,
     DEFAULT_RANDOM_LEN,
+    DIGITS,
+    LOWERCASE,
     MIN_RANDOM_LEN,
     SAFE_SYMBOLS,
+    UNSAFE_SYMBOLS,
+    UPPERCASE,
     generate_random,
 )
 from rhymepass.strength import format_strength, score_passphrase
@@ -73,9 +78,14 @@ from rhymepass.strength import format_strength, score_passphrase
 __version__ = "0.0.0.dev1"
 
 __all__ = [
+    "ALL_SYMBOLS",
     "DEFAULT_RANDOM_LEN",
+    "DIGITS",
+    "LOWERCASE",
     "MIN_RANDOM_LEN",
     "SAFE_SYMBOLS",
+    "UNSAFE_SYMBOLS",
+    "UPPERCASE",
     "__version__",
     "build_anchor_pool",
     "format_strength",

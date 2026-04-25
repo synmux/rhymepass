@@ -9,7 +9,13 @@ rhyme candidates.
 
 from __future__ import annotations
 
-from rhymepass.randomgen import SAFE_SYMBOLS
+from rhymepass.randomgen import (
+    ALL_SYMBOLS,
+    DIGITS,
+    LOWERCASE,
+    SAFE_SYMBOLS,
+    UPPERCASE,
+)
 from rhymepass.strength import format_strength
 from rhymepass.ui import LimitModal, PassphraseApp
 
@@ -374,3 +380,204 @@ class TestPassphraseAppMode:
             await pilot.pause()
             assert "x: toggle spaces" not in str(hints.render())
             assert "m: mode" in str(hints.render())
+            # Random mode advertises the charset toggles instead.
+            assert "1-5: charset" in str(hints.render())
+
+
+class TestPassphraseAppCharset:
+    """Random-mode character-class toggles (keys ``1`` through ``5``).
+
+    Each test that triggers regeneration awaits
+    ``app.workers.wait_for_complete()`` because the toggle dispatches
+    a thread worker and the assertions need the post-regeneration
+    state.
+    """
+
+    async def test_default_charset(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """The five-class charset starts with ``all`` off, the rest on."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert app.charset == frozenset({"upper", "lower", "digits", "safe"})
+
+    async def test_charset_bar_hidden_in_rhyme_mode(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Charset bar is ``display: none`` when not in random mode."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            bar = app.query_one("#charset-bar")
+            # Textual exposes the resolved CSS display value here.
+            assert str(bar.styles.display) == "none"
+
+    async def test_charset_bar_visible_in_random_mode(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Charset bar becomes visible after pressing ``m``."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            bar = app.query_one("#charset-bar")
+            assert str(bar.styles.display) == "block"
+            # Bar text shows all five chips with their keys.
+            text = str(bar.render())
+            for key in ("[1]", "[2]", "[3]", "[4]", "[5]"):
+                assert key in text
+
+    async def test_keys_are_noop_in_rhyme_mode(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Pressing 1-5 in rhyme mode must not mutate the charset."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            before = app.charset
+            for key in ("1", "2", "3", "4", "5"):
+                await pilot.press(key)
+                await pilot.pause()
+            assert app.charset == before
+
+    async def test_1_toggles_uppercase(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Pressing 1 in random mode flips the ``upper`` class."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "upper" in app.charset
+            await pilot.press("1")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "upper" not in app.charset
+
+    async def test_5_forces_safe_on(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Enabling ``all`` (key 5) implicitly enables ``safe`` (key 4)."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # Disable safe first, then enable all - safe must come back on.
+            await pilot.press("4")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "safe" not in app.charset
+            await pilot.press("5")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "all" in app.charset
+            assert "safe" in app.charset
+
+    async def test_disabling_safe_disables_all(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Disabling ``safe`` while ``all`` is on must also disable ``all``."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("5")  # all on (also forces safe on)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "all" in app.charset
+            assert "safe" in app.charset
+            await pilot.press("4")  # safe off -> all off too
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "safe" not in app.charset
+            assert "all" not in app.charset
+
+    async def test_cannot_disable_last_class(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """The last enabled class refuses to be disabled (toast, no change)."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # Disable lower, digits, safe. Upper remains the last class.
+            for key in ("2", "3", "4"):
+                await pilot.press(key)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+            assert app.charset == frozenset({"upper"})
+            # Now try to disable upper too. Charset must stay at {upper}.
+            await pilot.press("1")
+            await pilot.pause()
+            assert app.charset == frozenset({"upper"})
+
+    async def test_toggle_triggers_regeneration_with_charset_filter(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """After narrowing to uppercase only, every output is uppercase only."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # Disable lower, digits, safe -> uppercase-only charset.
+            for key in ("2", "3", "4"):
+                await pilot.press(key)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+            for password in app._passphrases:
+                assert all(c in UPPERCASE for c in password), password
+                # Sanity: no other-class chars sneak in.
+                assert not any(c in LOWERCASE for c in password)
+                assert not any(c in DIGITS for c in password)
+                assert not any(c in SAFE_SYMBOLS for c in password)
+
+    async def test_all_symbols_class_can_appear(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """With ``all`` enabled, the unsafe punctuation set is reachable."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("m")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("5")  # enable "all"
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # Every output is guaranteed to contain a char from
+            # ALL_SYMBOLS (the per-class one-of-each rule).
+            for password in app._passphrases:
+                assert any(c in ALL_SYMBOLS for c in password), password

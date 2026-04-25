@@ -14,11 +14,13 @@ import re
 import pytest
 
 from rhymepass.randomgen import (
+    ALL_SYMBOLS,
     DEFAULT_RANDOM_LEN,
     DIGITS,
     LOWERCASE,
     MIN_RANDOM_LEN,
     SAFE_SYMBOLS,
+    UNSAFE_SYMBOLS,
     UPPERCASE,
     generate_random,
 )
@@ -183,3 +185,88 @@ class TestRandomConstants:
             for char in cls:
                 assert char not in seen, f"{char!r} appears in multiple classes"
                 seen.add(char)
+
+
+class TestSymbolUnion:
+    """The :data:`ALL_SYMBOLS` / :data:`UNSAFE_SYMBOLS` relationship."""
+
+    def test_unsafe_excludes_safe(self) -> None:
+        for char in SAFE_SYMBOLS:
+            assert (
+                char not in UNSAFE_SYMBOLS
+            ), f"{char!r} is in SAFE_SYMBOLS and must not also be in UNSAFE_SYMBOLS"
+
+    def test_unsafe_contains_user_examples(self) -> None:
+        # The user explicitly named these as unsafe in the original spec.
+        for char in ("!", '"', "\\"):
+            assert char in UNSAFE_SYMBOLS
+
+    def test_all_is_safe_plus_unsafe(self) -> None:
+        assert set(ALL_SYMBOLS) == set(SAFE_SYMBOLS) | set(UNSAFE_SYMBOLS)
+
+    def test_all_has_no_duplicates(self) -> None:
+        assert len(ALL_SYMBOLS) == len(set(ALL_SYMBOLS))
+
+    def test_all_includes_safe(self) -> None:
+        for char in SAFE_SYMBOLS:
+            assert char in ALL_SYMBOLS
+
+
+class TestCustomClasses:
+    """`generate_random(classes=...)` honours an arbitrary class subset."""
+
+    def test_default_classes_match_original_behaviour(self) -> None:
+        # When `classes` is omitted, the function behaves as before:
+        # one of each from (LOWERCASE, UPPERCASE, DIGITS, SAFE_SYMBOLS).
+        for _ in range(20):
+            password = generate_random()
+            assert any(c in LOWERCASE for c in password)
+            assert any(c in UPPERCASE for c in password)
+            assert any(c in DIGITS for c in password)
+            assert any(c in SAFE_SYMBOLS for c in password)
+
+    def test_only_uppercase(self) -> None:
+        for _ in range(20):
+            password = generate_random(length=12, classes=(UPPERCASE,))
+            assert len(password) == 12
+            assert all(c in UPPERCASE for c in password)
+
+    def test_two_classes_only_uppercase_and_digits(self) -> None:
+        for _ in range(20):
+            password = generate_random(length=10, classes=(UPPERCASE, DIGITS))
+            assert all(c in UPPERCASE + DIGITS for c in password)
+            assert any(c in UPPERCASE for c in password)
+            assert any(c in DIGITS for c in password)
+            # No characters from the unselected classes.
+            assert not any(c in LOWERCASE for c in password)
+            assert not any(c in SAFE_SYMBOLS for c in password)
+
+    def test_all_symbols_class(self) -> None:
+        # When ALL_SYMBOLS is passed, unsafe punctuation is allowed.
+        for _ in range(50):
+            password = generate_random(
+                length=24,
+                classes=(LOWERCASE, UPPERCASE, DIGITS, ALL_SYMBOLS),
+            )
+            # At least one ALL_SYMBOLS char must appear (one-of-each guarantee).
+            assert any(c in ALL_SYMBOLS for c in password)
+
+    def test_empty_classes_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one character class"):
+            generate_random(length=10, classes=())
+
+    def test_empty_class_string_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            generate_random(length=10, classes=(UPPERCASE, ""))
+
+    def test_length_below_class_count_raises(self) -> None:
+        # 4 classes need length >= 4; 3 need >= 3.
+        with pytest.raises(ValueError, match="at least 3"):
+            generate_random(length=2, classes=(UPPERCASE, LOWERCASE, DIGITS))
+
+    def test_length_equal_to_class_count_works(self) -> None:
+        # Exactly one of each class, no fillers.
+        password = generate_random(length=2, classes=(UPPERCASE, LOWERCASE))
+        assert len(password) == 2
+        assert any(c in UPPERCASE for c in password)
+        assert any(c in LOWERCASE for c in password)
