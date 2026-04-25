@@ -8,6 +8,8 @@ Guide for AI agents (and humans) working inside this repository. `CLAUDE.md` is 
 
 Format: `"<Phrase A> / <phrase B> / <NN>"` - e.g. `"The underground parade / an undelivered accolade / 38"`.
 
+Every candidate is also scored with [`zxcvbn`](https://pypi.org/project/zxcvbn/) and tagged with a strength indicator: an emoji (`🤮 / 🙁 / 🫤 / 🙂 / 🥳`) plus a one-to-five star run, joined by `" | "`. In the picker the indicator is the trailing column of each row and is recomputed against the displayed form (so toggling spaces with `x` updates it). In pipe mode the indicator goes to **stderr**, so pipes/redirections that consume stdout still receive a clean passphrase stream.
+
 In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all.
 
 Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). Both call `rhymepass.cli:main`.
@@ -16,15 +18,17 @@ Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). 
 
 ```plaintext
 src/rhymepass/
-├── __init__.py        public API: generate, build_anchor_pool, load_real_words, __version__
+├── __init__.py        public API: generate, build_anchor_pool, load_real_words,
+│                      score_passphrase, format_strength, __version__
 ├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (112) - hand-curated filler banks
 ├── anchors.py         load_real_words, _syllable_count, _is_good_anchor, build_anchor_pool
 ├── phrases.py         _starts_with_vowel_sound, _pick_determiner, _build_phrase,
 │                      _capitalise, _couplet_filler_splits
 ├── generator.py       shape constants (SUFFIX_LEN, COUPLET_SEP_LEN, MIN_*) and generate()
+├── strength.py        score_passphrase (zxcvbn wrapper), format_strength (emoji + stars)
 ├── clipboard.py       copy_to_clipboard (cross-platform; pbcopy/wl-copy/xclip/xsel/clip)
 ├── cli.py             _parse_count, _handle_flags, main - thin orchestration
-└── ui.py              PassphraseApp, LimitModal, run_interactive_app
+└── ui.py              PassphraseApp, LimitModal, run_interactive_app, _score_both_forms
 tests/
 ├── conftest.py        session-scoped real_words + anchor_pool fixtures; tiny_pool
 ├── test_anchors.py    anchor-quality rules + pool construction
@@ -32,19 +36,27 @@ tests/
 ├── test_clipboard.py  per-platform backend dispatch (mocked subprocess)
 ├── test_generator.py  generate() shape, limit enforcement, error paths
 ├── test_phrases.py    phrase builder helpers (monkeypatch for deterministic branches)
-├── test_ui.py         Textual pilot: key bindings, modal validation
+├── test_strength.py   format_strength rubric + real zxcvbn scoring (no mocks)
+├── test_ui.py         Textual pilot: key bindings, modal validation, strength rendering
 └── test_wordbanks.py  static invariants on the filler lists
 ```
 
 ## Public API
 
-`rhymepass/__init__.py` exposes three functions and the version:
+`rhymepass/__init__.py` exposes five functions and the version:
 
 ```python
-from rhymepass import generate, build_anchor_pool, load_real_words, __version__
+from rhymepass import (
+    build_anchor_pool,
+    format_strength,
+    generate,
+    load_real_words,
+    score_passphrase,
+    __version__,
+)
 ```
 
-`load_real_words()` and `build_anchor_pool(real_words)` are comparatively expensive (~1 s combined on a warm import cache); call them once per process and reuse the result for any number of `generate()` calls.
+`load_real_words()` and `build_anchor_pool(real_words)` are comparatively expensive (~1 s combined on a warm import cache); call them once per process and reuse the result for any number of `generate()` calls. `score_passphrase()` and `format_strength()` are cheap and stateless - safe to call per generation.
 
 ## Generator strategy
 
@@ -85,12 +97,16 @@ Constants to know (all live in `rhymepass.generator`):
 | `enter`     | copy highlighted passphrase to clipboard (via `pbcopy`) and exit          |
 | `esc` / `q` | exit without copying                                                      |
 
+**Row format** is `"<password padded>  [N chars]  <indicator>"` where `<indicator>` is the `format_strength` output for the score that matches the current display form.
+
 **Spaces toggle vs. limit enforcement** - these have two different roles and must not be conflated:
 
-- The per-row `[N chars]` annotation reflects `len(display_form)`, so it decreases when spaces are toggled off.
+- The per-row `[N chars]` annotation and the strength indicator both reflect `display_form` (i.e. the password the user would actually copy), so toggling spaces with `x` updates both columns to match.
 - The character-limit check inside `generate()` always uses the canonical spaced length, so toggling spaces off on a batch that already fits can never push any phrase over the limit.
 
-**Regeneration** happens in a `@work(thread=True, exclusive=True, name="regenerate")` worker. `on_worker_state_changed` swaps the batch atomically on success, or shows an error toast and leaves state untouched on failure. `exclusive=True` means spamming `r` cancels any in-flight regen rather than stacking.
+**Strength score cache** - `PassphraseApp` keeps a parallel `self._scores: list[tuple[int, int]]` where each entry is `(score_with_spaces, score_without_spaces)`. Both scores are computed up front (in `__init__` for the seeded batch, in `_regenerate_worker` for fresh batches) so toggling `spaces_on` is a pure lookup, not a `zxcvbn` call. The helper `_score_both_forms(passphrase)` is a tiny module-level wrapper that builds these pairs.
+
+**Regeneration** happens in a `@work(thread=True, exclusive=True, name="regenerate")` worker. The worker now returns `tuple[list[str], list[tuple[int, int]]]` so phrases and their score pairs land in `on_worker_state_changed` together; the handler asserts the tuple shape and swaps both lists atomically. `exclusive=True` means spamming `r` cancels any in-flight regen rather than stacking; on failure (`generate()` raises `RuntimeError`), the previous batch and its scores stay in place.
 
 ## Gotchas
 
@@ -103,6 +119,25 @@ This is a deliberate departure from the previous single-file version, which nest
 ### Non-TTY gate in `cli.main()`
 
 `if not sys.stdout.isatty(): print each; return` - Textual needs a real terminal. The gate is mandatory; never unconditionally call `run_interactive_app`.
+
+### Pipe-mode stdout/stderr split for the strength indicator
+
+In the non-TTY branch, passphrases go to **stdout** and the strength indicator goes to **stderr**, one line each per passphrase, both with `flush=True`:
+
+```python
+if not sys.stdout.isatty():
+    show_strength = sys.stderr.isatty()
+    for passphrase in passphrases:
+        print(passphrase, flush=True)
+        if show_strength:
+            print(format_strength(score_passphrase(passphrase)),
+                  file=sys.stderr, flush=True)
+    return
+```
+
+This keeps `rhymepass 5 | xargs ...` and `rhymepass 5 > file` clean (consumers receive only the password) while still showing the indicator on an attached terminal. The `sys.stderr.isatty()` gate skips scoring entirely when stderr is also redirected (`> file 2>/dev/null`) - no point spending zxcvbn time on output nobody will see.
+
+The `flush=True` on both streams is correctness-critical: with default block-buffering on a non-TTY stdout, all the password lines would buffer and emit only at process exit, after every indicator. Don't remove the flushes.
 
 ### Cross-platform clipboard
 

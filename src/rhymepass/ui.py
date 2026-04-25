@@ -31,6 +31,20 @@ from textual.widgets import Input, Label, OptionList, Static
 from textual.worker import Worker, WorkerState
 
 from rhymepass.generator import MIN_SINGLE_LEN, generate
+from rhymepass.strength import format_strength, score_passphrase
+
+
+def _score_both_forms(passphrase: str) -> tuple[int, int]:
+    """Score a passphrase in both display forms.
+
+    Returns ``(score_with_spaces, score_without_spaces)``. The picker
+    caches both up front so toggling ``spaces_on`` can flip the
+    indicator instantly without re-running zxcvbn on the UI thread.
+    """
+    return (
+        score_passphrase(passphrase),
+        score_passphrase(passphrase.replace(" ", "")),
+    )
 
 
 class LimitModal(ModalScreen[int | None]):
@@ -201,6 +215,9 @@ class PassphraseApp(App[str | None]):
         self._pool = pool
         self._real_words = real_words
         self._passphrases: list[str] = list(seeded)
+        self._scores: list[tuple[int, int]] = [
+            _score_both_forms(phrase) for phrase in seeded
+        ]
         self._pending_limit: int | None = None
 
     def compose(self) -> ComposeResult:
@@ -254,11 +271,15 @@ class PassphraseApp(App[str | None]):
         # decreases when spaces are toggled off. The limit enforced
         # inside generate() always uses the canonical spaced length,
         # so toggling spaces off can never push any phrase over limit.
+        # The strength indicator is looked up from the pre-cached
+        # (spaced, unspaced) score pair so the toggle keystroke does
+        # not block on a fresh zxcvbn call.
         display_forms = [self._display_form(phrase) for phrase in self._passphrases]
         column_width = max(len(form) for form in display_forms)
         rows = [
-            f"{display:<{column_width}}  [{len(display)} chars]"
-            for display in display_forms
+            f"{display:<{column_width}}  [{len(display)} chars]  "
+            f"{format_strength(self._scores[i][0 if self.spaces_on else 1])}"
+            for i, display in enumerate(display_forms)
         ]
         option_list.add_options(rows)
 
@@ -296,7 +317,9 @@ class PassphraseApp(App[str | None]):
     # Regeneration -----------------------------------------------------
 
     @work(thread=True, exclusive=True, name="regenerate")
-    def _regenerate_worker(self, new_limit: int) -> list[str]:
+    def _regenerate_worker(
+        self, new_limit: int
+    ) -> tuple[list[str], list[tuple[int, int]]]:
         """Regenerate the passphrase batch on a worker thread.
 
         Returning normally signals success; raising
@@ -304,16 +327,24 @@ class PassphraseApp(App[str | None]):
         Both land in :meth:`on_worker_state_changed`, which dispatches
         the UI update on the main thread.
 
+        Scoring happens here, off the UI thread, so the picker stays
+        responsive even though zxcvbn analysis takes tens of ms per
+        passphrase.
+
         Args:
             new_limit: The character limit to enforce for this batch.
 
         Returns:
-            A freshly-generated batch of ``self._count`` passphrases.
+            A tuple of ``(passphrases, scores)`` where ``scores`` is a
+            parallel list of ``(score_with_spaces, score_without_spaces)``
+            pairs. Both lists have length ``self._count``.
         """
-        return [
+        phrases = [
             generate(self._pool, self._real_words, limit=new_limit)
             for _ in range(self._count)
         ]
+        scores = [_score_both_forms(phrase) for phrase in phrases]
+        return phrases, scores
 
     def _regenerate_under(self, new_limit: int) -> None:
         """Kick off a background regeneration under ``new_limit``."""
@@ -330,9 +361,19 @@ class PassphraseApp(App[str | None]):
 
         if event.state is WorkerState.SUCCESS:
             result = event.worker.result
-            if isinstance(result, list):
+            # Worker returns ``(passphrases, scores)`` - keep them in
+            # lockstep so the index used by ``_refresh_list`` always
+            # finds a matching score pair.
+            if (
+                isinstance(result, tuple)
+                and len(result) == 2
+                and isinstance(result[0], list)
+                and isinstance(result[1], list)
+            ):
+                phrases, scores = result
                 self.limit = pending
-                self._passphrases = result
+                self._passphrases = phrases
+                self._scores = scores
                 self._refresh_list()
                 self._refresh_status()
             self._pending_limit = None

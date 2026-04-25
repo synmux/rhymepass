@@ -53,14 +53,24 @@ rhymepass --version  # print the installed version
 
 Use the arrow keys to highlight a passphrase, then press enter - the selected passphrase is copied to your clipboard and the tool exits.
 
-| Key         | What it does                                                                                                                                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `↑` / `↓`   | Move the highlight.                                                                                                                                                                                                                         |
-| `enter`     | Copy the highlighted passphrase and exit.                                                                                                                                                                                                   |
-| `x`         | Toggle whether spaces are shown. The per-row character count reflects the displayed form, so toggling spaces off makes every count drop. The character **limit**, however, is always enforced against the spaced form, so toggling is safe. |
-| `l`         | Prompt for a character limit. `0` means no limit (the default); any positive value must be at least 9 characters. The batch regenerates so every passphrase fits under the new limit.                                                       |
-| `r`         | Regenerate the batch with the current settings.                                                                                                                                                                                             |
-| `esc` / `q` | Exit without copying anything.                                                                                                                                                                                                              |
+| Key         | What it does                                                                                                                                                                                                                                                                              |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `↑` / `↓`   | Move the highlight.                                                                                                                                                                                                                                                                       |
+| `enter`     | Copy the highlighted passphrase and exit.                                                                                                                                                                                                                                                 |
+| `x`         | Toggle whether spaces are shown. The per-row character count and the strength indicator both update to reflect the displayed form, since that is the password you would actually copy. The character **limit**, however, is always enforced against the spaced form, so toggling is safe. |
+| `l`         | Prompt for a character limit. `0` means no limit (the default); any positive value must be at least 9 characters. The batch regenerates so every passphrase fits under the new limit.                                                                                                     |
+| `r`         | Regenerate the batch with the current settings.                                                                                                                                                                                                                                           |
+| `esc` / `q` | Exit without copying anything.                                                                                                                                                                                                                                                            |
+
+Each row in the picker ends with a strength indicator built from [`zxcvbn`](https://pypi.org/project/zxcvbn/). The score (`0`–`4`) is rendered as an emoji followed by `" | "` and a one-to-five star run:
+
+| Score | Indicator        |
+| ----- | ---------------- |
+| 0     | 🤮 \| ⭐         |
+| 1     | 🙁 \| ⭐⭐       |
+| 2     | 🫤 \| ⭐⭐⭐     |
+| 3     | 🙂 \| ⭐⭐⭐⭐   |
+| 4     | 🥳 \| ⭐⭐⭐⭐⭐ |
 
 Under a tight character budget the picker first drops filler words from the rhyming couplet, then (below ~16 characters) falls back to a single-statement form like `Half dally / 17`. The `" / NN"` two-digit suffix is always preserved.
 
@@ -68,28 +78,44 @@ Under a tight character budget the picker first drops filler words from the rhym
 
 When `stdout` is not a TTY, `rhymepass` skips the picker and just prints one passphrase per line. The interactive Textual dependency is never imported on this path, so pipe invocations start fast and stay light.
 
+The strength indicator is written to **stderr**, one line per passphrase, while passphrases themselves go to stdout. Pipes and redirections that consume stdout therefore receive only the password, while an attached terminal still shows the indicators interleaved. If `stderr` is also redirected away from a TTY (for example `rhymepass 5 > file 2>/dev/null`), scoring is skipped entirely - no wasted `zxcvbn` work for output nobody will see.
+
 ```sh
 rhymepass 3 | cat
-# Anchor pool: 24,439 words
+# stdout (visible to cat):
+#   Anchor pool: 24,439 words
 #
-# Those nimble amyloid / such gentle android / 16
-# Our bold missourian / some hopeful centurion / 84
-# Any tactile contemn / much calm condemn / 84
+#   Those nimble amyloid / such gentle android / 16
+#   Our bold missourian / some hopeful centurion / 84
+#   Any tactile contemn / much calm condemn / 84
+# stderr (visible only on the terminal):
+#   🥳 | ⭐⭐⭐⭐⭐
+#   🥳 | ⭐⭐⭐⭐⭐
+#   🥳 | ⭐⭐⭐⭐⭐
 ```
 
 ### As a library
 
 ```python
-from rhymepass import generate, build_anchor_pool, load_real_words
+from rhymepass import (
+    build_anchor_pool,
+    format_strength,
+    generate,
+    load_real_words,
+    score_passphrase,
+)
 
 real_words = load_real_words()
 pool = build_anchor_pool(real_words)
 
-print(generate(pool, real_words))              # no length limit
-print(generate(pool, real_words, limit=24))    # fit under 24 characters
+phrase = generate(pool, real_words)              # no length limit
+print(generate(pool, real_words, limit=24))      # fit under 24 characters
+
+score = score_passphrase(phrase)                 # 0..4 from zxcvbn
+print(phrase, "|", format_strength(score))       # "<phrase> | 🥳 | ⭐⭐⭐⭐⭐"
 ```
 
-[`load_real_words`](./src/rhymepass/anchors.py) and [`build_anchor_pool`](./src/rhymepass/anchors.py) are comparatively expensive; call them once per process and reuse the result for as many `generate` calls as you need.
+[`load_real_words`](./src/rhymepass/anchors.py) and [`build_anchor_pool`](./src/rhymepass/anchors.py) are comparatively expensive; call them once per process and reuse the result for as many `generate` calls as you need. [`score_passphrase`](./src/rhymepass/strength.py) is fast (a few milliseconds per call) and safe to invoke per generation.
 
 ## How it works
 
@@ -109,6 +135,7 @@ When a character limit is set, the generator descends through progressively shor
 - [`pronouncing`](https://pypi.org/project/pronouncing/) ≥ 0.3.0 - CMU Pronouncing Dictionary bindings.
 - [`english-words`](https://pypi.org/project/english-words/) ≥ 2.0.2 - GCIDE word set for filtering.
 - [`textual`](https://pypi.org/project/textual/) ≥ 0.80 - terminal UI. Only imported on the interactive path.
+- [`zxcvbn`](https://pypi.org/project/zxcvbn/) ≥ 4.5.0 - realistic password-strength scoring used by the indicator.
 
 See `pyproject.toml` for the exact pin set; the lock file covers transitive dependencies.
 

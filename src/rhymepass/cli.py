@@ -20,6 +20,7 @@ import sys
 from rhymepass.anchors import build_anchor_pool, load_real_words
 from rhymepass.clipboard import copy_to_clipboard
 from rhymepass.generator import generate
+from rhymepass.strength import format_strength, score_passphrase
 
 USAGE = """\
 Usage: rhymepass [count]
@@ -121,8 +122,22 @@ def main() -> None:
     passphrases = [generate(pool, real_words) for _ in range(count)]
 
     if not sys.stdout.isatty():
+        # stdout stays the plain passphrase stream so pipes and
+        # redirections receive only the password. The strength
+        # indicator is written to stderr, one line per passphrase,
+        # so an attached terminal still shows it but
+        # ``rhymepass | xargs ...`` and ``rhymepass > file`` are
+        # unaffected. ``flush=True`` on both streams keeps stdout
+        # and stderr ordered when a terminal merges them - without
+        # it Python's default block-buffering on a non-TTY stdout
+        # would batch the password lines and emit them after all
+        # the indicators.
+        show_strength = sys.stderr.isatty()
         for passphrase in passphrases:
-            print(passphrase)
+            print(passphrase, flush=True)
+            if show_strength:
+                indicator = format_strength(score_passphrase(passphrase))
+                print(indicator, file=sys.stderr, flush=True)
         return
 
     # Lazy import: keeps Textual out of the import graph for the

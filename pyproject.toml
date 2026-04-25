@@ -24,7 +24,12 @@ classifiers = [
   "Topic :: Security",
   "Topic :: Utilities",
 ]
-dependencies = ["english-words>=2.0.2", "pronouncing>=0.3.0", "textual>=0.80"]
+dependencies = [
+  "english-words>=2.0.2",
+  "pronouncing>=0.3.0",
+  "textual>=0.80",
+  "zxcvbn>=4.5.0",
+]
 dynamic = ["version"]
 
 [project.optional-dependencies]

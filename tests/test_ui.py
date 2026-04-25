@@ -9,6 +9,7 @@ rhyme candidates.
 
 from __future__ import annotations
 
+from rhymepass.strength import format_strength
 from rhymepass.ui import LimitModal, PassphraseApp
 
 
@@ -165,3 +166,82 @@ class TestLimitModalValidation:
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, LimitModal)
+
+
+class TestStrengthIndicator:
+    """The zxcvbn-backed strength indicator that follows each row.
+
+    These tests focus on three guarantees:
+
+    1. Each seeded passphrase gets a ``(spaced, unspaced)`` score
+       cached up front so the toggle does not call zxcvbn on the UI
+       thread.
+    2. Every rendered row contains the ``format_strength`` output for
+       the score that matches the current display form.
+    3. Pressing ``x`` flips the lookup index so the indicator updates
+       to reflect the form the user would actually copy.
+    """
+
+    async def test_seed_scores_have_two_in_range_ints_per_row(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Each seeded passphrase yields a (spaced, unspaced) score pair."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            assert len(app._scores) == 3
+            for spaced, unspaced in app._scores:
+                assert isinstance(spaced, int)
+                assert isinstance(unspaced, int)
+                assert 0 <= spaced <= 4
+                assert 0 <= unspaced <= 4
+
+    async def test_rows_contain_indicator_for_current_display_form(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Each rendered row ends with the strength indicator."""
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            option_list = app.query_one("#passphrase-list")
+            for index, (spaced_score, _) in enumerate(app._scores):
+                row_text = str(option_list.get_option_at_index(index).prompt)
+                assert format_strength(spaced_score) in row_text
+
+    async def test_toggle_swaps_indicator_lookup(
+        self, tiny_pool: list[str], real_words: set[str]
+    ) -> None:
+        """Pressing ``x`` flips the score-pair index used for rendering.
+
+        The test plants a deterministic divergence between spaced and
+        unspaced scores so we can assert the row text changes when
+        ``self.spaces_on`` flips, even if zxcvbn happens to score the
+        two display forms identically for a given passphrase.
+        """
+        app = PassphraseApp(
+            count=3, pool=tiny_pool, real_words=real_words, seeded=_seed_batch()
+        )
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            # Force distinguishable scores per form so we can spot the
+            # toggle from outside without depending on zxcvbn's exact
+            # behaviour for these particular phrases.
+            app._scores = [(0, 4), (1, 3), (2, 2)]
+            app._refresh_list()
+            await pilot.pause()
+            option_list = app.query_one("#passphrase-list")
+
+            # spaces_on=True -> lookup index 0 (the spaced score).
+            assert format_strength(0) in str(option_list.get_option_at_index(0).prompt)
+            assert format_strength(1) in str(option_list.get_option_at_index(1).prompt)
+
+            await pilot.press("x")
+            await pilot.pause()
+
+            # spaces_on=False -> lookup index 1 (the unspaced score).
+            assert format_strength(4) in str(option_list.get_option_at_index(0).prompt)
+            assert format_strength(3) in str(option_list.get_option_at_index(1).prompt)
