@@ -79,7 +79,7 @@ from rhymepass.randomgen import (
 )
 from rhymepass.strength import format_strength, score_passphrase
 
-__version__ = "0.0.0.dev1"
+__version__ = "0.0.0.overwrittenbyci1"
 
 __all__ = [
     "ALL_SYMBOLS",
