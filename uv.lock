@@ -225,7 +225,7 @@ requires-dist = [
     { name = "english-words", specifier = ">=2.0.2" },
     { name = "pronouncing", specifier = ">=0.3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.0a2" },
     { name = "textual", specifier = ">=0.80" },
     { name = "zxcvbn", specifier = ">=4.5.0" },
 ]
