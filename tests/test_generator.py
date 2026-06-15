@@ -76,8 +76,20 @@ class TestGeneratorLimits:
     def test_minimum_single_limit_succeeds(
         self, anchor_pool: list[str], real_words: set[str]
     ) -> None:
-        phrase = generate(anchor_pool, real_words, limit=MIN_SINGLE_LEN)
+        # At limit=9 only the single-statement form can fit (the
+        # shortest couplet is 16), and only a 4-letter anchor fits
+        # ("abcd / 12" == 9). Those anchors are ~2% of the pool, so a
+        # generous max_attempts keeps this deterministic rather than
+        # flaking ~0.3% of runs under the default 300 draws.
+        phrase = generate(
+            anchor_pool, real_words, limit=MIN_SINGLE_LEN, max_attempts=5000
+        )
         assert len(phrase) <= MIN_SINGLE_LEN
+        # Positively assert the single-statement shape, not merely the
+        # length bound: exactly one " / " separator and the "X / NN"
+        # form (a couplet is length-impossible here).
+        assert phrase.count(" / ") == 1
+        assert SINGLE_PATTERN.match(phrase), f"unexpected shape: {phrase!r}"
 
     def test_minimum_couplet_limit_succeeds(
         self, anchor_pool: list[str], real_words: set[str]
@@ -96,8 +108,11 @@ class TestGeneratorLimits:
         self, anchor_pool: list[str], real_words: set[str]
     ) -> None:
         # Even under the tightest limits, the two-digit suffix stays.
+        # MIN_SINGLE_LEN (9) needs a 4-letter anchor (~2% of the pool),
+        # so a generous max_attempts keeps the limit=9 case from
+        # flaking under the default 300 draws.
         for limit in (MIN_SINGLE_LEN, MIN_COUPLET_LEN, 20, 50):
-            phrase = generate(anchor_pool, real_words, limit=limit)
+            phrase = generate(anchor_pool, real_words, limit=limit, max_attempts=5000)
             assert re.search(r" / \d{2}$", phrase)
             assert len(phrase) >= SUFFIX_LEN + 1  # at minimum "X / NN"
 

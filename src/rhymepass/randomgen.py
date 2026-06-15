@@ -12,7 +12,7 @@ The five available classes are:
 * :data:`UPPERCASE` - ASCII A..Z (26 chars)
 * :data:`DIGITS` - 0..9 (10 chars)
 * :data:`SAFE_SYMBOLS` - punctuation chosen to avoid shell, URL,
-  regex and SQL interpretation (7 chars)
+  regex and CSV interpretation (7 chars)
 * :data:`ALL_SYMBOLS` - the union of :data:`SAFE_SYMBOLS` and
   :data:`UNSAFE_SYMBOLS` (every ASCII punctuation char plus ``§``)
 
@@ -106,9 +106,10 @@ MIN_RANDOM_LEN: int = 4
 The function guarantees at least one character from each requested
 class, so the true minimum is ``len(classes)``. With the default
 four classes (lowercase, uppercase, digits, safe symbols) that
-becomes 4. The picker uses this constant as the modal's minimum
-value in random mode and bumps it dynamically when extra classes
-are toggled on.
+becomes 4. The picker does not use this constant as the modal
+minimum; it derives the random-mode minimum from the live charset as
+``max(1, len(active_classes))`` (1..4), so the floor shrinks when
+classes are toggled off as well as growing when they are toggled on.
 """
 
 _DEFAULT_CLASSES: tuple[str, ...] = (LOWERCASE, UPPERCASE, DIGITS, SAFE_SYMBOLS)

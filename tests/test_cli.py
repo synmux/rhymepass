@@ -13,6 +13,8 @@ the suite stays fast.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from click.testing import CliRunner
 
@@ -21,11 +23,21 @@ from rhymepass.cli import main
 
 
 def _make_runner() -> CliRunner:
-    """Return a CliRunner with stderr separated from stdout.
+    """Return a CliRunner whose stdout and stderr are separable.
 
-    Click 8.1 had a ``mix_stderr=False`` kwarg; Click 8.2 removed it
-    because separated streams became the default. Falling back keeps
-    the tests version-tolerant across the supported pin range.
+    Click 8.1 had a ``mix_stderr=False`` kwarg that made
+    ``result.output`` the stdout-only stream. Click 8.2+ removed the
+    kwarg: there ``result.output`` is the *merged* stdout+stderr
+    stream (interleaved in write order), while ``result.stdout`` and
+    ``result.stderr`` are always captured separately. The try/except
+    keeps both spellings working across the supported ``click >= 8.1``
+    pin.
+
+    Consequence for assertions: read ``result.stdout`` for the
+    passphrase stream and ``result.stderr`` for warnings / the
+    strength indicator. Asserting passphrase line counts against
+    ``result.output`` is wrong on Click 8.2+ because a stderr line
+    (e.g. the weak-strength warning) would be counted as a passphrase.
     """
     try:
         return CliRunner(mix_stderr=False)
@@ -118,7 +130,7 @@ class TestCountOption:
         assert result.exit_code == 0
         # Pipe mode prints exactly `count` passphrase lines and
         # nothing else - no header, no blank lines.
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 5
 
     def test_no_anchor_pool_header_in_pipe_mode(
@@ -129,16 +141,16 @@ class TestCountOption:
         # metadata into the password stream and is now suppressed.
         result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
-        assert "Anchor pool" not in result.output
+        assert "Anchor pool" not in result.stdout
         # Stricter check: every output line should be a passphrase
         # (no blank separator before the first phrase).
-        lines = result.output.splitlines()
+        lines = result.stdout.splitlines()
         assert lines[0].strip() != ""
 
     def test_explicit_count(self, runner: CliRunner, patched_loaders: None) -> None:
         result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 3
 
     def test_zero_count_rejected(self, runner: CliRunner) -> None:
@@ -169,7 +181,7 @@ class TestPositionalLimit:
     ) -> None:
         result = runner.invoke(main, ["24"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 5
         for phrase in passphrases:
             assert len(phrase) <= 24
@@ -177,7 +189,7 @@ class TestPositionalLimit:
     def test_positional_limit_in_random_pipe(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["--mode", "random", "16"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 5
         for phrase in passphrases:
             assert len(phrase) == 16
@@ -203,7 +215,7 @@ class TestPositionalLimit:
     ) -> None:
         result = runner.invoke(main, ["0", "-n", "1"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 1
 
     def test_conflict_positional_and_limit_flag(self, runner: CliRunner) -> None:
@@ -218,6 +230,38 @@ class TestPositionalLimit:
         out = result.output + (getattr(result, "stderr", "") or "")
         assert "not both" in out
 
+    def test_conflict_positional_and_explicit_zero_limit(
+        self, runner: CliRunner
+    ) -> None:
+        # Regression: the option value 0 ("no limit") must NOT be
+        # mistaken for "option omitted". Specifying the limit both
+        # ways - positional plus an explicit `-l 0` - is still a
+        # double-specification and must be rejected, just like the
+        # nonzero cases above. Previously the `limit_opt != 0` guard
+        # let this slip through and silently dropped the `-l 0`.
+        result = runner.invoke(main, ["16", "-l", "0"])
+        assert result.exit_code != 0
+        out = result.output + (getattr(result, "stderr", "") or "")
+        assert "not both" in out
+
+    def test_conflict_explicit_zero_limit_both_ways(self, runner: CliRunner) -> None:
+        # Both forms set to the explicit-zero sentinel is still a
+        # double-specification.
+        result = runner.invoke(main, ["0", "-l", "0"])
+        assert result.exit_code != 0
+        out = result.output + (getattr(result, "stderr", "") or "")
+        assert "not both" in out
+
+    def test_explicit_limit_zero_alone_is_no_limit(
+        self, runner: CliRunner, patched_loaders: None
+    ) -> None:
+        # `-l 0` on its own means "no limit" and must generate
+        # normally - the sentinel change must not break the lone form.
+        result = runner.invoke(main, ["-l", "0", "-n", "1"])
+        assert result.exit_code == 0
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
+        assert len(passphrases) == 1
+
 
 # Mode + rhyme-specific behaviour ---------------------------------------------
 
@@ -231,7 +275,7 @@ class TestRhymeMode:
         result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
         # Every rhyme passphrase has at least one " / " separator.
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         for phrase in passphrases:
             assert "/" in phrase
 
@@ -240,7 +284,7 @@ class TestRhymeMode:
     ) -> None:
         result = runner.invoke(main, ["--no-spaces", "-n", "3"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         # The " / " around the digit suffix becomes "/" with the
         # surrounding spaces stripped; the interior word spaces are
         # also gone.
@@ -269,16 +313,16 @@ class TestRandomMode:
     def test_default_length_is_used_when_limit_zero(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["--mode", "random", "-n", "1"])
         assert result.exit_code == 0
-        line = result.output.strip()
+        line = result.stdout.strip()
         # No anchor-pool header in random mode.
-        assert "Anchor pool" not in result.output
+        assert "Anchor pool" not in result.stdout
         # Default length is 24.
         assert len(line) == 24
 
     def test_explicit_limit_sets_exact_length(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["--mode", "random", "--limit", "8", "-n", "5"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 5
         for phrase in passphrases:
             assert len(phrase) == 8
@@ -298,7 +342,7 @@ class TestRandomMode:
             ],
         )
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         # Only uppercase + digits expected.
         for phrase in passphrases:
             assert all(c.isupper() or c.isdigit() for c in phrase), phrase
@@ -332,7 +376,7 @@ class TestRandomMode:
         )
         assert result.exit_code == 0
         # 8 lines of digits-only-or-upper-only chars.
-        for phrase in result.output.splitlines():
+        for phrase in result.stdout.splitlines():
             if phrase.strip():
                 assert all(c.isupper() or c.isdigit() for c in phrase)
 
@@ -343,7 +387,7 @@ class TestRandomMode:
             main, ["--mode", "random", "--no-spaces", "--limit", "8", "-n", "1"]
         )
         assert result.exit_code == 0
-        line = result.output.strip()
+        line = result.stdout.strip()
         assert len(line) == 8
         assert " " not in line
 
@@ -372,7 +416,14 @@ class TestRandomMode:
 
 
 class TestStrengthIndicator:
-    """The strength indicator is suppressed when stderr is not a TTY."""
+    """Strength-indicator routing on the pipe path.
+
+    The contract (AGENTS.md): the per-line indicator goes to **stderr**,
+    never stdout, so a consumer of stdout receives only passphrases.
+    Under CliRunner both streams report ``isatty()==False``, so the
+    indicator is suppressed entirely; one test covers that suppressed
+    path and one shims ``stderr.isatty()`` to verify the actual routing.
+    """
 
     def test_no_indicator_in_stdout(
         self, runner: CliRunner, patched_loaders: None
@@ -383,7 +434,69 @@ class TestStrengthIndicator:
         result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
         for emoji in ("🤮", "☹️", "🫤", "😀", "🥳"):
-            assert emoji not in result.output
+            assert emoji not in result.stdout
+
+    def test_indicator_routed_to_stderr_not_stdout(
+        self,
+        runner: CliRunner,
+        patched_loaders: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When stderr is a TTY the indicator lands on stderr and stdout stays clean.
+
+        CliRunner reports ``isatty()==False`` for both streams, which
+        would suppress the indicator entirely - so we shim the cli
+        module's ``sys`` reference to report ``stderr.isatty() == True``
+        while leaving ``stdout.isatty()`` False (keeping the pipe path).
+        The passphrase must land on stdout alone; the indicator must
+        land on stderr alone. This is the routing the suppressed-path
+        test above cannot distinguish from "not emitted".
+        """
+        import sys as real_sys
+
+        import rhymepass.cli as cli_mod
+
+        class _StderrShim:
+            def __init__(self, real: Any) -> None:
+                self._real = real
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._real, name)
+
+            def isatty(self) -> bool:
+                return True
+
+        class _SysShim:
+            def __init__(self, real: Any) -> None:
+                self._real = real
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._real, name)
+
+            @property
+            def stdout(self) -> Any:
+                return self._real.stdout
+
+            @property
+            def stderr(self) -> Any:
+                return _StderrShim(self._real.stderr)
+
+        monkeypatch.setattr(cli_mod, "sys", _SysShim(real_sys))
+        monkeypatch.setattr(
+            cli_mod, "generate_batch", lambda *a, **k: ["Foo bar / baz qux / 12"]
+        )
+        monkeypatch.setattr(cli_mod, "score_passphrase", lambda _: 4)
+
+        result = runner.invoke(main, ["-n", "1"])
+        assert result.exit_code == 0
+        emojis = ("🤮", "☹️", "🫤", "😀", "🥳")
+        # The indicator IS routed to stderr ...
+        assert any(emoji in result.stderr for emoji in emojis), result.stderr
+        # ... and the passphrase stream (stdout) stays clean of it.
+        for emoji in emojis:
+            assert emoji not in result.stdout
+        # The passphrase itself is on stdout, not stderr.
+        assert "Foo bar / baz qux / 12" in result.stdout
 
 
 # Weak-strength warning -------------------------------------------------------
@@ -485,5 +598,5 @@ class TestInteractiveOverride:
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
         result = runner.invoke(main, ["--no-interactive", "-n", "2"])
         assert result.exit_code == 0
-        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        passphrases = [line for line in result.stdout.splitlines() if line.strip()]
         assert len(passphrases) == 2

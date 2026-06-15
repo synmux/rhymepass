@@ -110,7 +110,6 @@ def _parse_classes_csv(
     type=click.IntRange(min=0),
     default=None,
     required=False,
-    metavar="LIMIT",
 )
 @click.option(
     "-m",
@@ -133,8 +132,7 @@ def _parse_classes_csv(
     "--limit",
     "limit_opt",
     type=click.IntRange(min=0),
-    default=0,
-    show_default=True,
+    default=None,
     help=(
         "Length constraint. Rhyme mode: max total length, must be 0 "
         "or >= 9. Random mode: exact length, must be 0 (default 24) "
@@ -177,7 +175,7 @@ def main(
     limit: int | None,
     mode: str,
     count: int,
-    limit_opt: int,
+    limit_opt: int | None,
     spaces: bool,
     classes: frozenset[str] | None,
     interactive: bool | None,
@@ -201,17 +199,21 @@ def main(
     if classes is not None and mode != "random":
         raise click.UsageError("--classes is only valid with --mode random.")
 
-    # Reconcile positional LIMIT (new primary way to set the limit)
-    # with the -l/--limit option. We treat the option's default of 0
-    # as "not supplied" for conflict detection.
+    # Reconcile positional LIMIT (the primary way to set the limit)
+    # with the -l/--limit option. Both default to None when omitted,
+    # so an explicit value of 0 ("no limit") on either form is still
+    # detected as a double-specification rather than mistaken for the
+    # option's default.
+    if limit is not None and limit_opt is not None:
+        raise click.UsageError(
+            "Specify the limit via the positional or via -l/--limit, not both."
+        )
     if limit is not None:
-        if limit_opt != 0:
-            raise click.UsageError(
-                "Specify the limit via the positional or via -l/--limit, not both."
-            )
         effective_limit = limit
-    else:
+    elif limit_opt is not None:
         effective_limit = limit_opt
+    else:
+        effective_limit = 0
 
     # Resolve the random-mode charset early so the per-mode --limit
     # validation can reference the count of enabled classes (the

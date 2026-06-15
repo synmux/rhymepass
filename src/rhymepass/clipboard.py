@@ -15,9 +15,12 @@ Backends by platform:
   encoded as UTF-16LE with a byte-order mark so non-ASCII characters
   round-trip correctly.
 
-Adding a new backend is a matter of appending to the relevant list in
-:func:`_linux_backends` / :func:`_backends_for`, not sprinkling
-platform checks across the codebase.
+Adding a new backend is a matter of appending a :class:`_Backend`
+entry to the relevant module-level tuple (:data:`_MAC_BACKENDS`,
+:data:`_WINDOWS_BACKENDS`, :data:`_X11_BACKENDS`,
+:data:`_WAYLAND_BACKENDS`); :func:`_backends_for` and
+:func:`_linux_backends` then pick it up automatically, so no platform
+checks need sprinkling across the codebase.
 """
 
 from __future__ import annotations

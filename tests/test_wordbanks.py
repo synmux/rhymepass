@@ -20,6 +20,15 @@ class TestDeterminers:
     def test_no_duplicates(self) -> None:
         assert len(DETERMINERS) == len(set(DETERMINERS))
 
+    def test_alphabetically_sorted(self) -> None:
+        # The module docstring promises "alphabetical within each list".
+        assert DETERMINERS == sorted(DETERMINERS)
+
+    def test_exact_count(self) -> None:
+        # Pinned because AGENTS.md documents this exact count; if the
+        # list changes, update AGENTS.md line 27 in the same commit.
+        assert len(DETERMINERS) == 33
+
     def test_no_multi_word_entries(self) -> None:
         assert all(" " not in word for word in DETERMINERS)
 
@@ -48,6 +57,15 @@ class TestAdjectives:
 
     def test_no_duplicates(self) -> None:
         assert len(ADJECTIVES) == len(set(ADJECTIVES))
+
+    def test_alphabetically_sorted(self) -> None:
+        # The module docstring promises "alphabetical within each list".
+        assert ADJECTIVES == sorted(ADJECTIVES)
+
+    def test_exact_count(self) -> None:
+        # Pinned because AGENTS.md documents this exact count; if the
+        # list changes, update AGENTS.md line 27 in the same commit.
+        assert len(ADJECTIVES) == 118
 
     def test_all_purely_alphabetic(self) -> None:
         assert all(word.isalpha() for word in ADJECTIVES)

@@ -37,8 +37,13 @@ def score_passphrase(text: str) -> int:
 
     Returns:
         An ``int`` in ``[0, 4]`` matching zxcvbn's published scale
-        (0 = trivial, 4 = very strong).
+        (0 = trivial, 4 = very strong). The empty string scores ``0``;
+        ``zxcvbn`` itself raises on empty input, so we short-circuit it
+        to keep this function total over all strings (and consistent
+        with its ``[0, 4]`` contract).
     """
+    if not text:
+        return 0
     return int(_analyse(text)["score"])
 
 

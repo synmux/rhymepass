@@ -81,6 +81,16 @@ def test_score_passphrase_returns_int_in_range() -> None:
     assert 0 <= score <= 4
 
 
+def test_score_passphrase_empty_string_returns_zero() -> None:
+    """The empty string is trivially weak and scores 0, not a crash.
+
+    ``zxcvbn`` itself raises ``IndexError`` on empty input;
+    ``score_passphrase`` guards that case so the function stays total
+    over all strings, honouring the documented ``[0, 4]`` contract.
+    """
+    assert score_passphrase("") == 0
+
+
 def test_score_passphrase_distinguishes_weak_from_strong() -> None:
     """A real rhymepass-shaped phrase scores higher than ``"password"``.
 

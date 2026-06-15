@@ -132,9 +132,12 @@ def _couplet_filler_splits(total: int) -> list[tuple[int, int]]:
 
     The order is fixed (ascending ``fillers_a``) so the couplet
     descent inside :func:`rhymepass.generator.generate` is
-    deterministic for a given total: balanced splits are tried before
-    heavily-skewed ones, and the same sequence is retried across
-    anchor draws.
+    deterministic for a given total, and the same sequence is retried
+    across anchor draws. For ``total == 2`` this yields
+    ``[(0, 2), (1, 1), (2, 0)]`` - left-light splits first, the
+    balanced split in the middle - which is fine because the descent
+    accepts the first candidate that fits the limit regardless of
+    balance.
 
     Args:
         total: The combined filler budget to distribute across the

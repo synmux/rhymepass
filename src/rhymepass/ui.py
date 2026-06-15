@@ -74,7 +74,9 @@ class LimitModal(ModalScreen[int | None]):
     The ``min_value`` is supplied by the parent screen because it
     depends on the current generation mode: rhyming mode uses
     :data:`rhymepass.generator.MIN_SINGLE_LEN` (9), while random mode
-    can go as low as :data:`rhymepass.randomgen.MIN_RANDOM_LEN` (4).
+    uses the number of currently-enabled character classes (``1``
+    through ``4``), since each enabled class contributes one
+    guaranteed character to the output.
     """
 
     DEFAULT_CSS = """
@@ -161,8 +163,9 @@ class PassphraseApp(App[str | None]):
     """Interactive passphrase picker.
 
     The app takes over the entire terminal, but the visible UI is a
-    self-sizing card that auto-fits its content and is capped at 90%
-    of each dimension so it never overflows the screen.
+    self-sizing card that auto-fits its content; its height is capped
+    at 90% of the terminal (and its width at 100%) so it never
+    overflows the screen.
 
     Reactive state:
 
@@ -422,7 +425,7 @@ class PassphraseApp(App[str | None]):
 
         The chip layout is deliberately compact (no ``Charset:``
         prefix; single space between chips) so all five chips fit
-        within the random-mode card's :data:`min-width` of 60 cells
+        within the random-mode card's ``min-width`` of 64 cells
         on narrow terminals. Together with the card's ``min-width``
         rule this keeps the chips visible regardless of how short
         the seeded passphrase rows are.

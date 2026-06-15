@@ -24,7 +24,7 @@ src/rhymepass/
 │                      score_passphrase, format_strength, SAFE_SYMBOLS,
 │                      DEFAULT_RANDOM_LEN, MIN_RANDOM_LEN, DEFAULT_CHARSET,
 │                      CLASS_NAMES, __version__
-├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (112) - hand-curated filler banks
+├── wordbanks.py       DETERMINERS (33) and ADJECTIVES (118) - hand-curated filler banks
 ├── anchors.py         load_real_words, _syllable_count, _is_good_anchor, build_anchor_pool
 ├── phrases.py         _starts_with_vowel_sound, _pick_determiner, _build_phrase,
 │                      _capitalise, _couplet_filler_splits
@@ -184,8 +184,8 @@ stdout in pipe mode therefore contains exactly `count` lines (governed by `-n/--
 
 `rhymepass.ui` exposes two module-level classes and a launcher:
 
-- **`LimitModal(ModalScreen[int | None])`** - centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). The constructor takes a `min_value` (defaulting to `MIN_SINGLE_LEN`); the parent screen passes `MIN_RANDOM_LEN` (4) when in random mode. ENTER validates and dismisses with the int (rejects values below `min_value` via a toast); ESC dismisses with `None`.
-- **`PassphraseApp(App[str | None])`** - the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width/height: 90%`. Card auto-sizes to content; capped to 90% of terminal so it never overflows. Four reactives drive its state: `spaces_on`, `limit`, `random_mode`, and `charset` (a `frozenset[str]` holding the active class names: `upper`, `lower`, `digits`, `safe`, `all`). The constructor accepts a matching set of **keyword-only** initial-state arguments (`spaces_on`, `limit`, `random_mode`, `charset`) so the CLI can seed the picker's opening state. Defaults match the class-level reactive defaults so existing callers (and existing tests) need no change.
+- **`LimitModal(ModalScreen[int | None])`** - centred dialog. `Input(type="integer", restrict=r"[0-9]*")` with value `"0"` pre-selected on mount (so the first digit overwrites rather than appending). The constructor takes a `min_value` (defaulting to `MIN_SINGLE_LEN`); the parent screen passes the number of currently-enabled character classes (`1`..`4`) when in random mode. ENTER validates and dismisses with the int (rejects values below `min_value` via a toast); ESC dismisses with `None`.
+- **`PassphraseApp(App[str | None])`** - the picker. Centred card layout via `Screen { align: center middle }` + an inner `#card` `Container` with `width/height: auto; max-width: 100%; max-height: 90%`. Card auto-sizes to content; its height is capped to 90% of the terminal (width to 100%) so it never overflows. Four reactives drive its state: `spaces_on`, `limit`, `random_mode`, and `charset` (a `frozenset[str]` holding the active class names: `upper`, `lower`, `digits`, `safe`, `all`). The constructor accepts a matching set of **keyword-only** initial-state arguments (`spaces_on`, `limit`, `random_mode`, `charset`) so the CLI can seed the picker's opening state. Defaults match the class-level reactive defaults so existing callers (and existing tests) need no change.
 - **`run_interactive_app(count, pool, real_words, seeded, *, spaces_on, limit, random_mode, charset)`** - instantiates the app and returns its result. Forwards every initial-state argument to `PassphraseApp.__init__`.
 
 **Key bindings (documented in the card's key-hint label, which itself adapts to the mode):**
@@ -194,7 +194,7 @@ stdout in pipe mode therefore contains exactly `count` lines (governed by `-n/--
 | ----------- | --------------------------------------------------------------------------------------------------- |
 | `↑` / `↓`   | navigate the passphrase list                                                                        |
 | `x`         | toggle displayed spaces (rhyme mode only; silent no-op in random mode, hidden from the footer hint) |
-| `l`         | open the limit modal (min 9 in rhyme mode; in random mode min = number of enabled classes, 1..5)    |
+| `l`         | open the limit modal (min 9 in rhyme mode; in random mode min = number of enabled classes, 1..4)    |
 | `m`         | toggle rhyme/random; flips accent to violet, reveals the charset bar, regenerates                   |
 | `1`–`5`     | random mode only: toggle a class (upper/lower/digits/safe/all). Silent no-op in rhyme mode          |
 | `r`         | regenerate the current batch under the current limit, mode, and charset                             |
@@ -272,7 +272,7 @@ PassphraseApp.random-mode #charset-bar {
 
 The bar exists in both modes but is removed from the layout (`display: none`) in rhyme mode, so the card auto-shrinks back to its rhyme-mode size when the user flips `m`. The `_charset_text()` helper renders one chip per class with Rich markup: bold + `✓` for enabled, dim + `·` for disabled.
 
-**Modal minimum** in random mode is `len(self._active_classes())` (1..5), not the static `MIN_RANDOM_LEN`. The modal validator enforces it inline so the user gets immediate feedback if they request a length below the class count. Below that the worker would otherwise raise `ValueError("length must be at least N to fit one of each ...")` and the previous batch would stay in place via the existing failure-rollback path.
+**Modal minimum** in random mode is `len(self._active_classes())` (1..4), not the static `MIN_RANDOM_LEN`. The ceiling is **4, not 5**: `resolve_classes` folds `safe` into `all` (they share the symbol slot), so even with all five charset chips lit the resolver returns only four distinct classes (`upper`, `lower`, `digits`, and one symbol class). The modal validator enforces it inline so the user gets immediate feedback if they request a length below the class count. Below that the worker would otherwise raise `ValueError("length must be at least N to fit one of each ...")` and the previous batch would stay in place via the existing failure-rollback path.
 
 **No-ops in rhyme mode**: keys `1`–`5` early-return when `random_mode` is False. The bindings stay registered (Textual doesn't easily support per-mode binding sets) so pressing them in rhyme mode is silent and harmless.
 
