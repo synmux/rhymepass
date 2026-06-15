@@ -79,7 +79,8 @@ from rhymepass.randomgen import (
 )
 from rhymepass.strength import format_strength, score_passphrase
 
-__version__ = "0.0.0.dev2"
+# overwritten by the publish workflow
+__version__ = "0.0.0.untagged0"
 
 __all__ = [
     "ALL_SYMBOLS",
