@@ -154,17 +154,17 @@ The 69-char default alphabet gives ≈ 6.11 bits per character, so the 24-char d
 
 Flag map (every key binding has a matching flag; the picker still accepts the binding):
 
-| Flag                                 | Picker key | Semantics                                                                                                                                                |
-| ------------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Flag                                 | Picker key | Semantics                                                                                                                                                                                                                                   |
+| ------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `LIMIT` (optional positional)        | n/a        | Length constraint. Rhyme: max chars (0 or `>= MIN_SINGLE_LEN`). Random: exact length (0 means `DEFAULT_RANDOM_LEN`, otherwise `>= len(active_classes)`). Click's `IntRange(min=0)` accepts the value (including explicit 0 for "no limit"). |
-| `-n, --count N`                      | n/a        | Number of passphrases. Default `5`, must be `>= 1`. Click's `IntRange(min=1)` validates.                                                                 |
-| `-m, --mode {rhyme,random}`          | `m`        | Mode. Click's `Choice(case_sensitive=False)` accepts `RANDOM`, `Random`, etc.                                                                            |
-| `-l, --limit INT`                    | `l`        | Length constraint (the option form of the positional `LIMIT`). Same per-mode semantics. |
-| `--spaces` / `--no-spaces`           | `x`        | Whether rhyme output keeps interior spaces. Silent no-op in random mode (rejecting it would force scripts to special-case mode).                         |
-| `-c, --classes CSV`                  | `1`-`5`    | Comma-separated subset of `CLASS_NAMES`. The callback validates membership and lower-cases for case-insensitive input. **Rejected with `--mode rhyme`.** |
-| `--interactive` / `--no-interactive` | n/a        | Force the picker on/off; default is `sys.stdout.isatty()`.                                                                                               |
-| `-v, --version`                      | n/a        | Click's `version_option`; prints `rhymepass <__version__>`.                                                                                              |
-| `-h, --help`                         | n/a        | Click's auto-generated help. `context_settings={"help_option_names": ["-h", "--help"]}` makes both spellings work.                                       |
+| `-n, --count N`                      | n/a        | Number of passphrases. Default `5`, must be `>= 1`. Click's `IntRange(min=1)` validates.                                                                                                                                                    |
+| `-m, --mode {rhyme,random}`          | `m`        | Mode. Click's `Choice(case_sensitive=False)` accepts `RANDOM`, `Random`, etc.                                                                                                                                                               |
+| `-l, --limit INT`                    | `l`        | Length constraint (the option form of the positional `LIMIT`). Same per-mode semantics.                                                                                                                                                     |
+| `--spaces` / `--no-spaces`           | `x`        | Whether rhyme output keeps interior spaces. Silent no-op in random mode (rejecting it would force scripts to special-case mode).                                                                                                            |
+| `-c, --classes CSV`                  | `1`-`5`    | Comma-separated subset of `CLASS_NAMES`. The callback validates membership and lower-cases for case-insensitive input. **Rejected with `--mode rhyme`.**                                                                                    |
+| `--interactive` / `--no-interactive` | n/a        | Force the picker on/off; default is `sys.stdout.isatty()`.                                                                                                                                                                                  |
+| `-v, --version`                      | n/a        | Click's `version_option`; prints `rhymepass <__version__>`.                                                                                                                                                                                 |
+| `-h, --help`                         | n/a        | Click's auto-generated help. `context_settings={"help_option_names": ["-h", "--help"]}` makes both spellings work.                                                                                                                          |
 
 Validation is layered:
 

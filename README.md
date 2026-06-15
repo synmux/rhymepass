@@ -61,17 +61,17 @@ rhymepass --version  # print the installed version
 
 Every interactive picker control is also reachable as a CLI flag. The flags become the **opening state** of the picker (or the configuration of the one-shot pipe path); inside the picker, the same controls remain available as key bindings.
 
-| Option                               | What it does                                                                                                                                                                      |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LIMIT`                              | Length constraint (positional form of ``-l``). Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes. |
-| `-n, --count N`                      | How many passphrases to generate. Default `5`, must be `≥ 1`.                                                                                                                     |
-| `-m, --mode {rhyme,random}`          | Generation mode. `rhyme` (default) builds memorable couplets; `random` builds fixed-length passwords from a curated character set.                                                |
-| `-l, --limit N`                      | Length constraint. Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes. |
-| `--spaces` / `--no-spaces`           | Show or hide interior spaces in rhyme output. Defaults to showing spaces. No-op in random mode.                                                                                   |
-| `-c, --classes CSV`                  | Comma-separated random-mode character classes. Choose any non-empty subset of `upper,lower,digits,safe,all`. Defaults to `upper,lower,digits,safe`. Rejected in rhyme mode.       |
-| `--interactive` / `--no-interactive` | Force the picker on or off. By default the picker is shown when stdout is a TTY.                                                                                                  |
-| `-v, --version`                      | Print the installed version and exit.                                                                                                                                             |
-| `-h, --help`                         | Print the help summary and exit.                                                                                                                                                  |
+| Option                               | What it does                                                                                                                                                                                                |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LIMIT`                              | Length constraint (positional form of `-l`). Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes. |
+| `-n, --count N`                      | How many passphrases to generate. Default `5`, must be `≥ 1`.                                                                                                                                               |
+| `-m, --mode {rhyme,random}`          | Generation mode. `rhyme` (default) builds memorable couplets; `random` builds fixed-length passwords from a curated character set.                                                                          |
+| `-l, --limit N`                      | Length constraint. Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes.                           |
+| `--spaces` / `--no-spaces`           | Show or hide interior spaces in rhyme output. Defaults to showing spaces. No-op in random mode.                                                                                                             |
+| `-c, --classes CSV`                  | Comma-separated random-mode character classes. Choose any non-empty subset of `upper,lower,digits,safe,all`. Defaults to `upper,lower,digits,safe`. Rejected in rhyme mode.                                 |
+| `--interactive` / `--no-interactive` | Force the picker on or off. By default the picker is shown when stdout is a TTY.                                                                                                                            |
+| `-v, --version`                      | Print the installed version and exit.                                                                                                                                                                       |
+| `-h, --help`                         | Print the help summary and exit.                                                                                                                                                                            |
 
 A few common one-liners:
 
@@ -139,7 +139,7 @@ rhymepass -n 3 | cat
 #   🥳 | ⭐⭐⭐⭐⭐
 ```
 
-stdout therefore contains exactly `count` lines (the value of ``--count`` / ``-n``), each a complete passphrase, with no header, blank lines, or other metadata. `rhymepass -n 5 | head -1` is guaranteed to return the first passphrase.
+stdout therefore contains exactly `count` lines (the value of `--count` / `-n`), each a complete passphrase, with no header, blank lines, or other metadata. `rhymepass -n 5 | head -1` is guaranteed to return the first passphrase.
 
 You can also use the positional form to constrain length while piping, e.g. `rhymepass 24 | cat` (up to 5 rhymes each ≤24 chars).
 
