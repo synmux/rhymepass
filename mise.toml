@@ -48,6 +48,10 @@ run = ["rm -rf dist/", "uv build"]
 description = "Preflight: validate dist/ metadata with twine (run after build)"
 run = "uvx twine check dist/*"
 
+[tasks.claude]
+description = "Run Claude Code"
+run = "~/.local/bin/claude"
+
 [tasks.publish-dry]
 description = "Dry-run publish - build, preflight check, then simulate upload"
 run = [
