@@ -67,6 +67,7 @@ class TestHelp:
         assert "Usage:" in result.output
         assert "--mode" in result.output
         assert "--limit" in result.output
+        assert "--count" in result.output
         assert "--spaces" in result.output
         assert "--no-spaces" in result.output
         assert "--classes" in result.output
@@ -104,11 +105,11 @@ class TestVersion:
         assert __version__ in result.output
 
 
-# Count argument --------------------------------------------------------------
+# Count option --------------------------------------------------------------
 
 
-class TestCount:
-    """The positional ``COUNT`` argument and its validation."""
+class TestCountOption:
+    """The ``-n/--count`` option and its validation."""
 
     def test_default_count_is_five(
         self, runner: CliRunner, patched_loaders: None
@@ -126,7 +127,7 @@ class TestCount:
         # Pipe consumers receive only passphrases. The "Anchor pool:"
         # metadata line printed by older versions used to mix
         # metadata into the password stream and is now suppressed.
-        result = runner.invoke(main, ["3"])
+        result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
         assert "Anchor pool" not in result.output
         # Stricter check: every output line should be a passphrase
@@ -135,26 +136,87 @@ class TestCount:
         assert lines[0].strip() != ""
 
     def test_explicit_count(self, runner: CliRunner, patched_loaders: None) -> None:
-        result = runner.invoke(main, ["3"])
+        result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
         passphrases = [line for line in result.output.splitlines() if line.strip()]
         assert len(passphrases) == 3
 
     def test_zero_count_rejected(self, runner: CliRunner) -> None:
-        result = runner.invoke(main, ["0"])
+        result = runner.invoke(main, ["-n", "0"])
         assert result.exit_code != 0
 
     def test_negative_count_rejected(self, runner: CliRunner) -> None:
-        result = runner.invoke(main, ["-3"])
+        result = runner.invoke(main, ["-n", "-3"])
         assert result.exit_code != 0
 
     def test_non_integer_rejected(self, runner: CliRunner) -> None:
-        result = runner.invoke(main, ["abc"])
+        result = runner.invoke(main, ["-n", "abc"])
         assert result.exit_code != 0
 
     def test_too_many_positional_args(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["3", "4"])
         assert result.exit_code != 0
+
+
+# Positional LIMIT (the new meaning of bare number) --------------------------
+
+
+class TestPositionalLimit:
+    """The optional positional ``LIMIT`` (rhyme max / random exact) and conflicts."""
+
+    def test_positional_limit_in_rhyme_pipe(
+        self, runner: CliRunner, patched_loaders: None
+    ) -> None:
+        result = runner.invoke(main, ["24"])
+        assert result.exit_code == 0
+        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        assert len(passphrases) == 5
+        for phrase in passphrases:
+            assert len(phrase) <= 24
+
+    def test_positional_limit_in_random_pipe(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["--mode", "random", "16"])
+        assert result.exit_code == 0
+        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        assert len(passphrases) == 5
+        for phrase in passphrases:
+            assert len(phrase) == 16
+
+    def test_small_positional_limit_rejected_in_rhyme(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["5"])
+        assert result.exit_code != 0
+        assert "at least 9" in result.output or "at least 9" in (
+            result.stderr if hasattr(result, "stderr") else ""
+        )
+
+    def test_small_positional_limit_rejected_in_random(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            main,
+            ["--mode", "random", "--classes", "upper,lower", "1"],
+        )
+        assert result.exit_code != 0
+        out = result.output + (getattr(result, "stderr", "") or "")
+        assert "at least 2" in out or "one character per" in out
+
+    def test_positional_zero_accepted_as_no_limit(
+        self, runner: CliRunner, patched_loaders: None
+    ) -> None:
+        result = runner.invoke(main, ["0", "-n", "1"])
+        assert result.exit_code == 0
+        passphrases = [line for line in result.output.splitlines() if line.strip()]
+        assert len(passphrases) == 1
+
+    def test_conflict_positional_and_limit_flag(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["24", "-l", "16"])
+        assert result.exit_code != 0
+        out = result.output + (getattr(result, "stderr", "") or "")
+        assert "not both" in out
+
+    def test_conflict_limit_flag_then_positional(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["-l", "16", "24"])
+        assert result.exit_code != 0
+        out = result.output + (getattr(result, "stderr", "") or "")
+        assert "not both" in out
 
 
 # Mode + rhyme-specific behaviour ---------------------------------------------
@@ -166,7 +228,7 @@ class TestRhymeMode:
     def test_rhyme_output_contains_slash(
         self, runner: CliRunner, patched_loaders: None
     ) -> None:
-        result = runner.invoke(main, ["3"])
+        result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
         # Every rhyme passphrase has at least one " / " separator.
         passphrases = [line for line in result.output.splitlines() if line.strip()]
@@ -176,7 +238,7 @@ class TestRhymeMode:
     def test_no_spaces_strips_interior_spaces(
         self, runner: CliRunner, patched_loaders: None
     ) -> None:
-        result = runner.invoke(main, ["--no-spaces", "3"])
+        result = runner.invoke(main, ["--no-spaces", "-n", "3"])
         assert result.exit_code == 0
         passphrases = [line for line in result.output.splitlines() if line.strip()]
         # The " / " around the digit suffix becomes "/" with the
@@ -205,7 +267,7 @@ class TestRandomMode:
     """``--mode random`` produces fixed-length passwords."""
 
     def test_default_length_is_used_when_limit_zero(self, runner: CliRunner) -> None:
-        result = runner.invoke(main, ["--mode", "random", "1"])
+        result = runner.invoke(main, ["--mode", "random", "-n", "1"])
         assert result.exit_code == 0
         line = result.output.strip()
         # No anchor-pool header in random mode.
@@ -214,7 +276,7 @@ class TestRandomMode:
         assert len(line) == 24
 
     def test_explicit_limit_sets_exact_length(self, runner: CliRunner) -> None:
-        result = runner.invoke(main, ["--mode", "random", "--limit", "8", "5"])
+        result = runner.invoke(main, ["--mode", "random", "--limit", "8", "-n", "5"])
         assert result.exit_code == 0
         passphrases = [line for line in result.output.splitlines() if line.strip()]
         assert len(passphrases) == 5
@@ -231,6 +293,7 @@ class TestRandomMode:
                 "upper,digits",
                 "--limit",
                 "12",
+                "-n",
                 "5",
             ],
         )
@@ -259,13 +322,13 @@ class TestRandomMode:
         assert result.exit_code != 0
 
     def test_mode_is_case_insensitive(self, runner: CliRunner) -> None:
-        result = runner.invoke(main, ["--mode", "RANDOM", "1"])
+        result = runner.invoke(main, ["--mode", "RANDOM", "-n", "1"])
         assert result.exit_code == 0
 
     def test_classes_are_case_insensitive(self, runner: CliRunner) -> None:
         result = runner.invoke(
             main,
-            ["--mode", "random", "--classes", "Upper,DIGITS", "8"],
+            ["--mode", "random", "--classes", "Upper,DIGITS", "-n", "8"],
         )
         assert result.exit_code == 0
         # 8 lines of digits-only-or-upper-only chars.
@@ -277,7 +340,7 @@ class TestRandomMode:
         # Random output has no spaces anyway; passing --no-spaces is
         # accepted and produces the same shape.
         result = runner.invoke(
-            main, ["--mode", "random", "--no-spaces", "--limit", "8", "1"]
+            main, ["--mode", "random", "--no-spaces", "--limit", "8", "-n", "1"]
         )
         assert result.exit_code == 0
         line = result.output.strip()
@@ -298,6 +361,7 @@ class TestRandomMode:
                 "upper,lower,digits,all",
                 "--limit",
                 "16",
+                "-n",
                 "10",
             ],
         )
@@ -316,7 +380,7 @@ class TestStrengthIndicator:
         # CliRunner streams report isatty()==False, so the indicator
         # is suppressed entirely. None of the strength emoji should
         # appear in stdout.
-        result = runner.invoke(main, ["3"])
+        result = runner.invoke(main, ["-n", "3"])
         assert result.exit_code == 0
         for emoji in ("🤮", "☹️", "🫤", "😀", "🥳"):
             assert emoji not in result.output
@@ -350,7 +414,7 @@ class TestWeakStrengthWarning:
     ) -> None:
         """Warning appears on stderr when limit > 0 and any phrase scores ≤ 3."""
         monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 2)
-        result = runner.invoke(main, ["--limit", "30", "2"])
+        result = runner.invoke(main, ["--limit", "30", "-n", "2"])
         assert result.exit_code == 0
         stderr = result.stderr if hasattr(result, "stderr") else result.output
         assert (
@@ -368,7 +432,7 @@ class TestWeakStrengthWarning:
         # Even with an artificially weak score, the warning must not fire
         # because limit=0 means the generator is unconstrained.
         monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 2)
-        result = runner.invoke(main, ["2"])
+        result = runner.invoke(main, ["-n", "2"])
         assert result.exit_code == 0
         stderr = result.stderr if hasattr(result, "stderr") else ""
         assert (
@@ -382,7 +446,7 @@ class TestWeakStrengthWarning:
     ) -> None:
         """No warning in random mode even when limit is set and scores are weak."""
         monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 2)
-        result = runner.invoke(main, ["--mode", "random", "--limit", "8", "2"])
+        result = runner.invoke(main, ["--mode", "random", "--limit", "8", "-n", "2"])
         assert result.exit_code == 0
         stderr = result.stderr if hasattr(result, "stderr") else ""
         assert "4 stars" not in stderr, f"Unexpected warning in random mode: {stderr!r}"
@@ -395,7 +459,7 @@ class TestWeakStrengthWarning:
     ) -> None:
         """No warning when all passphrases score 5 stars (score 4)."""
         monkeypatch.setattr("rhymepass.cli.score_passphrase", lambda _: 4)
-        result = runner.invoke(main, ["--limit", "30", "2"])
+        result = runner.invoke(main, ["--limit", "30", "-n", "2"])
         assert result.exit_code == 0
         stderr = result.stderr if hasattr(result, "stderr") else ""
         assert (
@@ -419,7 +483,7 @@ class TestInteractiveOverride:
         # would launch (and fail in CliRunner). With --no-interactive
         # the pipe path is taken instead.
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-        result = runner.invoke(main, ["--no-interactive", "2"])
+        result = runner.invoke(main, ["--no-interactive", "-n", "2"])
         assert result.exit_code == 0
         passphrases = [line for line in result.output.splitlines() if line.strip()]
         assert len(passphrases) == 2

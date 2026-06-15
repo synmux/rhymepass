@@ -28,7 +28,7 @@ run = "uv run rhymepass"
 
 [tasks.smoke]
 description = "Non-TTY smoke test - print 8 phrases via pipe"
-run = "uv run rhymepass 8 | cat"
+run = "uv run rhymepass -n 8 | cat"
 
 [tasks.smoke-lib]
 description = "Library API smoke test - call generate() directly"

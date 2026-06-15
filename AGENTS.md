@@ -11,7 +11,7 @@ Guide for AI agents (and humans) working inside this repository. `CLAUDE.md` is 
 
 Every candidate is also scored with [`zxcvbn`](https://pypi.org/project/zxcvbn/) and tagged with a strength indicator: an emoji (`🤮 / ☹️ / 🫤 / 😀 / 🥳`) plus a one-to-five star run, joined by `" | "`. In the picker the indicator is the trailing column of each row and is recomputed against the displayed form (so toggling spaces with `x` updates it). In pipe mode the indicator goes to **stderr**, so pipes/redirections that consume stdout still receive a clean passphrase stream.
 
-In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, mode toggle, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all. Both flavours are reachable from both surfaces: every interactive control has a matching CLI flag (`--mode`, `--limit`, `--spaces`/`--no-spaces`, `--classes`), and the picker accepts those flags as its **opening reactive state** (the picker still mutates that state via its bindings - flags set the _opening_ state, not a lock).
+In a TTY the user gets a Textual interface to pick a passphrase with live controls (spaces toggle, character limit, mode toggle, regenerate). In a pipe the tool just prints the generated passphrases, one per line, without importing Textual at all. Both flavours are reachable from both surfaces: every interactive control has a matching CLI flag (positional `LIMIT` or `--limit`, `--mode`, `-n/--count`, `--spaces`/`--no-spaces`, `--classes`), and the picker accepts those flags as its **opening reactive state** (the picker still mutates that state via its bindings - flags set the _opening_ state, not a lock).
 
 Two CLI entry points land here: `rhymepass` (canonical) and `rp` (short alias). Both call `rhymepass.cli:main`, a `click.Command`.
 
@@ -51,7 +51,7 @@ tests/
 ├── test_anchors.py    anchor-quality rules + pool construction
 ├── test_batch.py      generate_batch dispatch shape; rhyme requires pool;
 │                      random tolerates pool=None
-├── test_cli.py        Click CliRunner: help/version, count, mode/limit/spaces/
+├── test_cli.py        Click CliRunner: help/version, count option, positional limit, mode/limit/spaces/
 │                      classes, validation errors, --no-interactive override,
 │                      stderr-only strength indicator routing
 ├── test_clipboard.py  per-platform backend dispatch (mocked subprocess)
@@ -156,9 +156,10 @@ Flag map (every key binding has a matching flag; the picker still accepts the bi
 
 | Flag                                 | Picker key | Semantics                                                                                                                                                |
 | ------------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[count]` (positional)               | n/a        | Number of passphrases. Default `5`, must be `>= 1`. Click's `IntRange(min=1)` validates.                                                                 |
+| `LIMIT` (optional positional)        | n/a        | Length constraint. Rhyme: max chars (0 or `>= MIN_SINGLE_LEN`). Random: exact length (0 means `DEFAULT_RANDOM_LEN`, otherwise `>= len(active_classes)`). Click's `IntRange(min=0)` accepts the value (including explicit 0 for "no limit"). |
+| `-n, --count N`                      | n/a        | Number of passphrases. Default `5`, must be `>= 1`. Click's `IntRange(min=1)` validates.                                                                 |
 | `-m, --mode {rhyme,random}`          | `m`        | Mode. Click's `Choice(case_sensitive=False)` accepts `RANDOM`, `Random`, etc.                                                                            |
-| `-l, --limit INT`                    | `l`        | Length constraint. Rhyme: max chars (0 or `>= MIN_SINGLE_LEN`). Random: exact length (0 means `DEFAULT_RANDOM_LEN`, otherwise `>= len(active_classes)`). |
+| `-l, --limit INT`                    | `l`        | Length constraint (the option form of the positional `LIMIT`). Same per-mode semantics. |
 | `--spaces` / `--no-spaces`           | `x`        | Whether rhyme output keeps interior spaces. Silent no-op in random mode (rejecting it would force scripts to special-case mode).                         |
 | `-c, --classes CSV`                  | `1`-`5`    | Comma-separated subset of `CLASS_NAMES`. The callback validates membership and lower-cases for case-insensitive input. **Rejected with `--mode rhyme`.** |
 | `--interactive` / `--no-interactive` | n/a        | Force the picker on/off; default is `sys.stdout.isatty()`.                                                                                               |
@@ -177,7 +178,7 @@ Flag flow into the picker. When the TTY branch fires, parsed flags are passed to
 
 The pipe path uses `generate_batch(...)` directly (no picker, no clipboard). For rhyme output it applies the `--no-spaces` strip via `phrase.replace(" ", "")` before printing - this matches the picker's `_display_form` exactly. Strength indicators go to **stderr** when stderr is a TTY, mirroring the previous behaviour. The TTY path goes straight from the seeded batch into `run_interactive_app`; there is no pre-picker chrome (the previous "Anchor pool: N words" header was removed because the picker's status bar already shows the pool size, and on the pipe side it mixed metadata into the password stream).
 
-stdout in pipe mode therefore contains exactly `count` lines, one passphrase per line, with no header or blank lines. Consumers like `rhymepass 5 | head -1` and `rhymepass 5 > file` can rely on every line being a complete passphrase.
+stdout in pipe mode therefore contains exactly `count` lines (governed by `-n/--count`), one passphrase per line, with no header or blank lines. Consumers like `rhymepass -n 5 | head -1` and `rhymepass -n 5 > file` can rely on every line being a complete passphrase. Positional numbers now set the limit, e.g. `rhymepass 24 | cat`.
 
 ## Textual UI
 
@@ -319,7 +320,7 @@ if not use_picker:
     return
 ```
 
-This keeps `rhymepass 5 | xargs ...` and `rhymepass 5 > file` clean (consumers receive only the password) while still showing the indicator on an attached terminal. The `sys.stderr.isatty()` gate skips scoring for the _indicator_ when stderr is redirected (`> file 2>/dev/null`), but the weak-score check (`check_weak`) is not gated on `isatty()`: the warning is useful for scripts and CI pipelines, not just interactive sessions.
+This keeps `rhymepass -n 5 | xargs ...` and `rhymepass -n 5 > file` clean (consumers receive only the password) while still showing the indicator on an attached terminal. The `sys.stderr.isatty()` gate skips scoring for the _indicator_ when stderr is redirected (`> file 2>/dev/null`), but the weak-score check (`check_weak`) is not gated on `isatty()`: the warning is useful for scripts and CI pipelines, not just interactive sessions. (Bare numbers like `rhymepass 24` now mean limit, not count.)
 
 `click.echo` flushes its target stream after each call, so stdout and stderr stay correctly ordered when a terminal merges them. Don't replace it with bare `print` without restoring `flush=True`.
 
@@ -401,7 +402,7 @@ Tool versions: Python `3.14` for local dev (pinned in `.python-version`), packag
 | `test`         | `uv run pytest`                                          |
 | `test-verbose` | `uv run pytest -v`                                       |
 | `run`          | `uv run rhymepass` - launch interactive picker           |
-| `smoke`        | `uv run rhymepass 8 \| cat` - non-TTY pipe test          |
+| `smoke`        | `uv run rhymepass -n 8 \| cat` - non-TTY pipe test       |
 | `smoke-lib`    | Call `generate()` directly via `uv run python -c ...`    |
 | `clean`        | `rm -rf dist/`                                           |
 | `build`        | Clean dist/, then `uv build` (wheel + sdist)             |
@@ -430,7 +431,7 @@ One-off commands that have no mise wrapper:
 ```bash
 uv run rhymepass --version
 uv run rhymepass --help
-uv run rp [count]                         # short alias
+uv run rp [-n COUNT]                      # short alias (count via -n)
 uv run pytest tests/test_generator.py     # single-file test run
 ```
 

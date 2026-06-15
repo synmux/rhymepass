@@ -53,7 +53,8 @@ Two commands land the same tool on your `$PATH`:
 
 ```sh
 rhymepass            # picker, 5 rhyming phrases (default)
-rhymepass 10         # picker with 10 phrases
+rhymepass -n 10      # picker with 10 phrases
+rhymepass 24         # picker, rhymes no longer than 24 chars
 rhymepass --help     # full option summary
 rhymepass --version  # print the installed version
 ```
@@ -62,7 +63,8 @@ Every interactive picker control is also reachable as a CLI flag. The flags beco
 
 | Option                               | What it does                                                                                                                                                                      |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[count]`                            | How many passphrases to generate. Default `5`, must be `≥ 1`.                                                                                                                     |
+| `LIMIT`                              | Length constraint (positional form of ``-l``). Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes. |
+| `-n, --count N`                      | How many passphrases to generate. Default `5`, must be `≥ 1`.                                                                                                                     |
 | `-m, --mode {rhyme,random}`          | Generation mode. `rhyme` (default) builds memorable couplets; `random` builds fixed-length passwords from a curated character set.                                                |
 | `-l, --limit N`                      | Length constraint. Rhyme mode: maximum total length, must be `0` (no limit) or `≥ 9`. Random mode: exact length, must be `0` (default `24`) or `≥` the number of enabled classes. |
 | `--spaces` / `--no-spaces`           | Show or hide interior spaces in rhyme output. Defaults to showing spaces. No-op in random mode.                                                                                   |
@@ -74,12 +76,14 @@ Every interactive picker control is also reachable as a CLI flag. The flags beco
 A few common one-liners:
 
 ```sh
-rhymepass --mode random 1                          # one 24-char random password
-rhymepass -m random -l 16 5                        # five 16-char random passwords
-rhymepass -m random -c upper,digits 8              # eight uppercase+digit passwords
-rhymepass -m random -c upper,lower,digits,all 1    # one max-entropy password
-rhymepass --no-spaces 3 | pbcopy                   # rhymes with no interior spaces
-rhymepass -l 24 5                                  # five rhymes, each ≤ 24 chars
+rhymepass --mode random -n 1                       # one 24-char random password
+rhymepass -m random -l 16 -n 5                     # five 16-char random passwords
+rhymepass -m random -c upper,digits -n 8           # eight uppercase+digit passwords
+rhymepass -m random -c upper,lower,digits,all -n 1 # one max-entropy password
+rhymepass -n 3 --no-spaces | pbcopy                # rhymes with no interior spaces
+rhymepass -l 24 -n 5                               # five rhymes, each ≤ 24 chars
+rhymepass 24 -n 5                                  # five rhymes, each ≤ 24 chars (positional limit)
+rhymepass -m random 16                             # five 16-char random passwords (positional limit)
 ```
 
 #### In the picker
@@ -119,12 +123,12 @@ The minimum length the modal accepts in random mode is the number of currently-e
 
 When `stdout` is not a TTY, `rhymepass` skips the picker and just prints one passphrase per line. The interactive Textual dependency is never imported on this path, so pipe invocations start fast and stay light.
 
-The strength indicator is written to **stderr**, one line per passphrase, while passphrases themselves go to stdout. Pipes and redirections that consume stdout therefore receive only the password, while an attached terminal still sees the indicators interleaved. If `stderr` is also redirected away from a TTY (for example `rhymepass 5 > file 2>/dev/null`), scoring is skipped entirely - no wasted `zxcvbn` work for output nobody will see.
+The strength indicator is written to **stderr**, one line per passphrase, while passphrases themselves go to stdout. Pipes and redirections that consume stdout therefore receive only the password, while an attached terminal still sees the indicators interleaved. If `stderr` is also redirected away from a TTY (for example `rhymepass -n 5 > file 2>/dev/null`), scoring is skipped entirely - no wasted `zxcvbn` work for output nobody will see.
 
 When `--limit` is active in rhyme mode and any passphrase in the batch scores 4 stars or below, an additional warning line is written to **stderr** (unconditionally - not gated on whether stderr is a TTY) suggesting `--mode random` as an alternative. stdout is unaffected; the passphrase lines remain clean.
 
 ```sh
-rhymepass 3 | cat
+rhymepass -n 3 | cat
 # stdout (visible to cat):
 #   Those nimble amyloid / such gentle android / 16
 #   Our bold missourian / some hopeful centurion / 84
@@ -135,7 +139,9 @@ rhymepass 3 | cat
 #   🥳 | ⭐⭐⭐⭐⭐
 ```
 
-stdout therefore contains exactly `count` lines, each a complete passphrase, with no header, blank lines, or other metadata. `rhymepass 5 | head -1` is guaranteed to return the first passphrase.
+stdout therefore contains exactly `count` lines (the value of ``--count`` / ``-n``), each a complete passphrase, with no header, blank lines, or other metadata. `rhymepass -n 5 | head -1` is guaranteed to return the first passphrase.
+
+You can also use the positional form to constrain length while piping, e.g. `rhymepass 24 | cat` (up to 5 rhymes each ≤24 chars).
 
 ### As a library
 

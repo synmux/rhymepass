@@ -13,10 +13,11 @@ import cost. When ``stdout`` is not a TTY, the tool just prints its
 generated passphrases, one per line.
 
 The CLI exposes every knob the interactive picker has key bindings
-for: mode (``-m``), limit (``-l``), spaces (``--spaces`` /
-``--no-spaces``), and the random-mode character classes (``-c``).
-When the picker opens, those flags become its **initial reactive
-state**; the picker still mutates that state interactively.
+for: a positional ``LIMIT`` (or ``-l``), mode (``-m``), count (``-n``),
+spaces (``--spaces`` / ``--no-spaces``), and the random-mode character
+classes (``-c``). When the picker opens, those flags become its
+**initial reactive state**; the picker still mutates that state
+interactively.
 """
 
 from __future__ import annotations
@@ -97,14 +98,20 @@ def _parse_classes_csv(
         "\n"
         "\b\n"
         "  rhymepass                              Picker, 5 rhyming phrases.\n"
-        "  rhymepass 10                           Picker with 10 phrases.\n"
-        "  rhymepass --mode random 1              One 24-char random password.\n"
-        "  rhymepass -m random -l 16 1            One 16-char random password.\n"
+        "  rhymepass 24                           Picker with limit 24.\n"
+        "  rhymepass --mode random 16             One 16-char random password.\n"
+        "  rhymepass -m random -l 12 -n 3         Three 12-char random passwords.\n"
         "  rhymepass -m random -c upper,digits    Random with upper+digits only.\n"
-        "  rhymepass --no-spaces 3 | pbcopy       Pipe rhymes; no interior spaces.\n"
+        "  rhymepass -n 3 --no-spaces | pbcopy    Pipe rhymes; no interior spaces.\n"
     ),
 )
-@click.argument("count", type=click.IntRange(min=1), default=5)
+@click.argument(
+    "limit",
+    type=click.IntRange(min=0),
+    default=None,
+    required=False,
+    metavar="LIMIT",
+)
 @click.option(
     "-m",
     "--mode",
@@ -114,8 +121,17 @@ def _parse_classes_csv(
     help="Generation mode.",
 )
 @click.option(
+    "-n",
+    "--count",
+    type=click.IntRange(min=1),
+    default=5,
+    show_default=True,
+    help="Number of passphrases to generate.",
+)
+@click.option(
     "-l",
     "--limit",
+    "limit_opt",
     type=click.IntRange(min=0),
     default=0,
     show_default=True,
@@ -158,9 +174,10 @@ def _parse_classes_csv(
     message="%(prog)s %(version)s",
 )
 def main(
-    count: int,
+    limit: int | None,
     mode: str,
-    limit: int,
+    count: int,
+    limit_opt: int,
     spaces: bool,
     classes: frozenset[str] | None,
     interactive: bool | None,
@@ -184,25 +201,37 @@ def main(
     if classes is not None and mode != "random":
         raise click.UsageError("--classes is only valid with --mode random.")
 
+    # Reconcile positional LIMIT (new primary way to set the limit)
+    # with the -l/--limit option. We treat the option's default of 0
+    # as "not supplied" for conflict detection.
+    if limit is not None:
+        if limit_opt != 0:
+            raise click.UsageError(
+                "Specify the limit via the positional or via -l/--limit, not both."
+            )
+        effective_limit = limit
+    else:
+        effective_limit = limit_opt
+
     # Resolve the random-mode charset early so the per-mode --limit
     # validation can reference the count of enabled classes (the
     # generator's per-class minimum).
     if mode == "random":
         charset = classes if classes is not None else DEFAULT_CHARSET
         active_classes = resolve_classes(charset)
-        if 0 < limit < len(active_classes):
+        if 0 < effective_limit < len(active_classes):
             raise click.UsageError(
                 f"In random mode --limit must be 0 (default 24) or at "
                 f"least {len(active_classes)} (one character per "
-                f"enabled class). Got {limit}."
+                f"enabled class). Got {effective_limit}."
             )
     else:
         charset = DEFAULT_CHARSET
         active_classes = resolve_classes(charset)
-        if 0 < limit < MIN_SINGLE_LEN:
+        if 0 < effective_limit < MIN_SINGLE_LEN:
             raise click.UsageError(
                 f"In rhyme mode --limit must be 0 or at least "
-                f"{MIN_SINGLE_LEN}. Got {limit}."
+                f"{MIN_SINGLE_LEN}. Got {effective_limit}."
             )
 
     use_picker = interactive if interactive is not None else sys.stdout.isatty()
@@ -223,7 +252,7 @@ def main(
             pool if needs_pool else None,
             real_words if needs_pool else None,
             random_mode=(mode == "random"),
-            limit=limit,
+            limit=effective_limit,
             classes=active_classes,
         )
     except (ValueError, RuntimeError) as exc:
@@ -243,7 +272,7 @@ def main(
         # five-star threshold. We score every phrase in that case
         # (even when the strength indicator itself is suppressed) so
         # we can warn the user to consider switching to random mode.
-        check_weak = mode != "random" and limit > 0
+        check_weak = mode != "random" and effective_limit > 0
         any_weak = False
         for phrase in seeded:
             display = phrase if mode == "random" or spaces else phrase.replace(" ", "")
@@ -275,7 +304,7 @@ def main(
         real_words=real_words,
         seeded=seeded,
         spaces_on=spaces,
-        limit=limit,
+        limit=effective_limit,
         random_mode=(mode == "random"),
         charset=charset,
     )
