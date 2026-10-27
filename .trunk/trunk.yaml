@@ -16,8 +16,10 @@ runtimes:
     - python@3.14.4
 # This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
 lint:
+  disabled:
+    # Trunk plugins v1.11.0 still pass pinact the single-dash `-format` flag, which pinact 5 rejects.
+    - pinact
   enabled:
-    - pinact@5.0.2
     - actionlint@1.7.12
     - bandit@1.9.4
     - black@26.10.1
