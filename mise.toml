@@ -5,8 +5,8 @@ RHYMEPASS_MISE_ACTIVE = 'true'
 env_file = '.env'
 
 [tools]
-python = { version = "3.15.0" }
-uv = { version = "0.13.1" }
+python = "3.15.1"
+uv = "0.13.4"
 
 # ── Development ───────────────────────────────────────────────────────────────
 
